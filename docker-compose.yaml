@@ -1,0 +1,134 @@
+# Auth API Service Configuration
+# This file defines the better-auth authentication service
+
+services:
+  auth-api:
+    build:
+      context: .
+      dockerfile: ${AUTH_API_DOCKERFILE:-Dockerfile.dev}
+      args:
+        NODE_VERSION: ${NODE_VERSION:-24-alpine}
+    image: auth-api:${AUTH_API_VERSION:-dev}
+    container_name: ${COMPOSE_PROJECT_NAME:-auth}-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Node environment
+      NODE_ENV: ${NODE_ENV:-development}
+
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-authdb}?schema=auth
+      DATABASE_SCHEMA: ${DATABASE_SCHEMA:-auth}
+
+      # Redis for sessions
+      REDIS_URL: redis://redis:6379/${REDIS_DB_AUTH:-1}
+
+      # Better-auth configuration
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3002}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-your-secret-key-min-32-chars-replace-in-production}
+      BETTER_AUTH_BASE_PATH: ${BETTER_AUTH_BASE_PATH:-/api/auth}
+      BETTER_AUTH_TRUST_HOST: ${BETTER_AUTH_TRUST_HOST:-true}
+
+      # Email configuration (MailerSend)
+      MAILERSEND_API_KEY: ${MAILERSEND_API_KEY:-}
+      MAILERSEND_FROM_EMAIL: ${MAILERSEND_FROM_EMAIL:-noreply@example.com}
+      MAILERSEND_FROM_NAME: ${MAILERSEND_FROM_NAME:-MyApp}
+      MAILERSEND_VERIFICATION_TEMPLATE_ID: ${MAILERSEND_VERIFICATION_TEMPLATE_ID:-}
+      MAILERSEND_RESET_TEMPLATE_ID: ${MAILERSEND_RESET_TEMPLATE_ID:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@example.com}
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+
+      # # OAuth providers - loaded from .env file using env_file above
+      # GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      # GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      # GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+
+      # Frontend URL for redirects
+      FRONTEND_URL: http://localhost:5173
+
+      # Session configuration
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-domain-session}
+      SESSION_MAX_AGE: ${SESSION_MAX_AGE:-2592000}
+      SESSION_UPDATE_AGE: ${SESSION_UPDATE_AGE:-86400}
+      SESSION_SECURE_COOKIES: ${SESSION_SECURE_COOKIES:-false}
+
+      # CORS
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+
+      # Security
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-900000}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # Application
+      PORT: ${AUTH_API_INTERNAL_PORT:-3002}
+    ports:
+      - "${AUTH_API_PORT:-3002}:3002"
+    volumes:
+      - ./src:/app/src:ro
+      - ./prisma:/app/prisma:ro
+      - auth_api_cache:/app/.cache
+      - auth_api_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/api/auth/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ${NETWORK_NAME:-auth-network}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILES:-3}"
+
+  # Liquibase migration service for auth schema
+  liquibase-auth:
+    image: liquibase/liquibase:4.24
+    container_name: ${COMPOSE_PROJECT_NAME:-auth}-liquibase
+    profiles:
+      - migrate
+    env_file:
+      - .env
+    environment:
+      # Database connection
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-authdb}
+      LIQUIBASE_COMMAND_USERNAME: ${POSTGRES_USER:-postgres}
+      LIQUIBASE_COMMAND_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      LIQUIBASE_COMMAND_CHANGELOG_FILE: changelog/db.changelog-master.yaml
+      LIQUIBASE_COMMAND_DEFAULT_SCHEMA_NAME: auth
+      LIQUIBASE_COMMAND_LIQUIBASE_SCHEMA_NAME: liquibase
+      LIQUIBASE_LOG_LEVEL: INFO
+    volumes:
+      - ./migrations:/liquibase/changelog:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ${NETWORK_NAME:-auth-network}
+    command: ["update"]
+
+volumes:
+  auth_api_cache:
+    driver: local
+  auth_api_node_modules:
+    driver: local
+
+# Network configuration
+# When used as part of parent project: network may be defined externally
+# When used standalone: run `docker network create auth-network` first, or use docker-compose.override.yaml:
+#   networks:
+#     auth-network:
+#       external: true
+# Or set NETWORK_NAME env var to match your project's network name

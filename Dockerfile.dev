@@ -1,0 +1,21 @@
+# Development Dockerfile for Auth API
+ARG NODE_VERSION=24-alpine
+FROM node:${NODE_VERSION}
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy application code
+COPY . .
+
+# Build TypeScript (if needed)
+RUN npm run build || true
+
+# Expose API port
+EXPOSE 3002
+
+# Start development server
+CMD ["npm", "run", "dev"]

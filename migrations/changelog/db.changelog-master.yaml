@@ -1,0 +1,25 @@
+databaseChangeLog:
+  # Auth schema migrations
+  - changeSet:
+      id: auth-001
+      author: system
+      context: development
+      comment: Create better-auth tables in auth schema
+      changes:
+        - sqlFile:
+            path: changes/auth/001-create-auth-tables.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
+
+  - changeSet:
+      id: auth-002
+      author: system
+      context: development
+      comment: Create JWKS table for JWT plugin
+      changes:
+        - sqlFile:
+            path: changes/auth/002-create-jwks-table.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true

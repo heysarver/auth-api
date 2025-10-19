@@ -1,0 +1,17 @@
+# Docker Compose Override for Standalone Use
+# Copy this file to docker-compose.override.yaml for standalone auth-api usage
+#
+# Usage:
+#   1. Create network: docker network create auth-network
+#   2. Copy this file: cp docker-compose.override.yaml.example docker-compose.override.yaml
+#   3. Ensure PostgreSQL is accessible at postgres:5432 or update the network/depends_on
+#   4. Update .env with your database credentials
+#   5. Run services: docker compose up -d
+#   6. Run migrations: docker compose --profile migrate up liquibase-auth
+#
+# For integrated use with a parent project, set NETWORK_NAME in .env to match your project's network
+
+networks:
+  auth-network:
+    external: true
+    name: auth-network
