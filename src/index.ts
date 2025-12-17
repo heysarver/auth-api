@@ -1,13 +1,14 @@
+import dotenv from "dotenv";
+
+// Load environment variables FIRST before importing modules that use them
+dotenv.config();
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./lib/auth.js";
-import dotenv from "dotenv";
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3002;
