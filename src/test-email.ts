@@ -17,14 +17,14 @@ async function testEmails() {
   console.log(`📧 Sending test emails to: ${testEmail}`);
   console.log('');
 
-  // Check MailerSend configuration
-  const hasApiKey = !!process.env.MAILERSEND_API_KEY;
+  // Check SendGrid configuration
+  const hasApiKey = !!process.env.SENDGRID_API_KEY;
   if (hasApiKey) {
-    console.log('✅ MailerSend API key is configured');
-    console.log(`   From: ${process.env.MAILERSEND_FROM_EMAIL || 'noreply@example.com'}`);
-    console.log(`   Name: ${process.env.MAILERSEND_FROM_NAME || 'MyApp'}`);
+    console.log('✅ SendGrid API key is configured');
+    console.log(`   From: ${process.env.SENDGRID_FROM_EMAIL || 'noreply@example.com'}`);
+    console.log(`   Name: ${process.env.SENDGRID_FROM_NAME || 'MyApp'}`);
   } else {
-    console.log('⚠️  MailerSend API key not configured - emails will be logged to console');
+    console.log('⚠️  SendGrid API key not configured - emails will be logged to console');
   }
   console.log('');
 
@@ -56,8 +56,8 @@ async function testEmails() {
 
     if (!hasApiKey) {
       console.log('');
-      console.log('💡 To send real emails, add your MailerSend API key to .env:');
-      console.log('   MAILERSEND_API_KEY=your-api-key-here');
+      console.log('💡 To send real emails, add your SendGrid API key to .env:');
+      console.log('   SENDGRID_API_KEY=your-api-key-here');
     }
   } catch (error) {
     console.error('❌ Error during email test:', error);

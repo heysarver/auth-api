@@ -31,7 +31,7 @@ This is the **auth-api** microservice, handling authentication using Better Auth
 - Uses PostgreSQL connection pool (not direct client)
 - JWT plugin enabled with JWKS support
 - Session cookies prefixed (configurable via COOKIE_PREFIX)
-- Email verification uses MailerSend with fallback to plain HTML
+- Email verification uses SendGrid with fallback to plain HTML
 - Table model names must match exactly: `users`, `sessions`, `accounts`, `verifications`, `jwks`
 
 ## Common Development Commands
@@ -74,15 +74,15 @@ See .env.example for full documentation. Critical variables:
 - `DATABASE_URL` - Must include `?schema=auth` parameter
 - `BETTER_AUTH_SECRET` - Minimum 32 characters, shared with app-api for JWT validation
 - `BETTER_AUTH_URL` - Base URL for auth service (http://localhost:3002 in dev)
-- `MAILERSEND_API_KEY` - Required for email verification (optional in dev)
+- `SENDGRID_API_KEY` - Required for email verification (optional in dev)
 - `GITHUB_CLIENT_ID/SECRET` - For OAuth (optional)
 - `FRONTEND_URL` - For CORS configuration
 
 ### Email Handling (src/lib/email.ts)
 - Three main functions: `sendEmail`, `sendVerificationEmail`, `sendPasswordResetEmail`
-- Supports MailerSend templates via `MAILERSEND_VERIFICATION_TEMPLATE_ID` and `MAILERSEND_RESET_TEMPLATE_ID`
+- Supports SendGrid templates via `SENDGRID_VERIFICATION_TEMPLATE_ID` and `SENDGRID_RESET_TEMPLATE_ID`
 - Falls back to inline HTML/text if templates not configured
-- Gracefully degrades if MailerSend not configured (logs only)
+- Gracefully degrades if SendGrid not configured (logs only)
 
 ### Middleware Stack (src/index.ts)
 Order matters - configured as:

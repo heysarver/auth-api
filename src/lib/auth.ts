@@ -3,9 +3,15 @@ import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
 
-// Initialize PostgreSQL connection pool
+// Initialize PostgreSQL connection pool from DATABASE_URL
+// Format: postgresql://user:password@host:port/database?schema=auth
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL environment variable is required');
+}
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: databaseUrl,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
@@ -28,6 +34,9 @@ export const auth = betterAuth({
     jwt({
       jwks: {
         modelName: "jwks", // Explicitly set the model name
+        keyPairConfig: {
+          alg: "RS256", // Use RS256 for better compatibility with python-jose
+        },
       },
       jwt: {
         issuer: process.env.BETTER_AUTH_URL || "http://localhost:3002",

@@ -1,25 +1,25 @@
 # Email Verification Setup
 
-This document describes how email verification is configured in the auth-api using MailerSend and better-auth.
+This document describes how email verification is configured in the auth-api using SendGrid and better-auth.
 
 ## 🚀 Quick Start
 
-1. **Get a MailerSend API Key**
-   - Sign up at [MailerSend](https://www.mailersend.com)
+1. **Get a SendGrid API Key**
+   - Sign up at [SendGrid](https://sendgrid.com)
    - Create an API key with email sending permissions
    - Verify your sender domain or email address
 
 2. **Configure Environment Variables**
    Add to your `.env` file:
    ```bash
-   # MailerSend Configuration (Required)
-   MAILERSEND_API_KEY=your-mailersend-api-key-here
-   MAILERSEND_FROM_EMAIL=noreply@example.com
-   MAILERSEND_FROM_NAME=YourApp
+   # SendGrid Configuration (Required)
+   SENDGRID_API_KEY=your-sendgrid-api-key-here
+   SENDGRID_FROM_EMAIL=noreply@example.com
+   SENDGRID_FROM_NAME=YourApp
 
-   # Optional: Use MailerSend Dynamic Templates
-   MAILERSEND_VERIFICATION_TEMPLATE_ID=xxxxxxxxxxxxx
-   MAILERSEND_RESET_TEMPLATE_ID=xxxxxxxxxxxxx
+   # Optional: Use SendGrid Dynamic Templates
+   SENDGRID_VERIFICATION_TEMPLATE_ID=d-xxxxxxxxxxxxx
+   SENDGRID_RESET_TEMPLATE_ID=d-xxxxxxxxxxxxx
 
    # Support email for footer
    SUPPORT_EMAIL=support@example.com
@@ -58,12 +58,12 @@ The system includes beautiful default HTML templates with:
 - Clear call-to-action buttons
 - Plain text fallbacks
 
-### MailerSend Dynamic Templates (Optional)
-You can create custom templates in MailerSend:
+### SendGrid Dynamic Templates (Optional)
+You can create custom templates in SendGrid:
 
-1. Go to MailerSend Dashboard > Email > Templates
+1. Go to SendGrid Dashboard > Email API > Dynamic Templates
 2. Create templates for verification and password reset
-3. Add template IDs to your `.env` file
+3. Add template IDs to your `.env` file (format: `d-xxxxxxxxxxxxx`)
 4. Use these variables in your templates:
    - `{{verification_url}}` - The verification link
    - `{{reset_url}}` - The password reset link
@@ -97,10 +97,10 @@ emailAndPassword: {
 
 ## 🧪 Testing
 
-### Local Development (Without MailerSend)
-When `MAILERSEND_API_KEY` is not set, emails are logged to the console:
+### Local Development (Without SendGrid)
+When `SENDGRID_API_KEY` is not set, emails are logged to the console:
 ```
-📧 Email would be sent (MailerSend not configured):
+📧 Email would be sent (SendGrid not configured):
 To: user@example.com
 Subject: Verify your email address
 ```
@@ -111,7 +111,7 @@ The Docker stack includes Mailhog for local email testing:
 - Web UI: `http://localhost:8025`
 
 ### Production Testing
-1. Set up MailerSend with a verified sender
+1. Set up SendGrid with a verified sender
 2. Configure all environment variables
 3. Run the test script with a real email
 4. Check your inbox for the test emails
@@ -125,10 +125,10 @@ The Docker stack includes Mailhog for local email testing:
 
 2. **Rate Limiting**
    - Email sending is rate-limited by better-auth
-   - Additional MailerSend rate limits apply
+   - Additional SendGrid rate limits apply
 
 3. **Domain Verification**
-   - Always verify your sender domain in MailerSend
+   - Always verify your sender domain in SendGrid
    - Use SPF, DKIM, and DMARC for email authentication
 
 ## 📝 API Endpoints
@@ -143,9 +143,9 @@ The following endpoints are automatically provided by better-auth:
 ## 🐛 Troubleshooting
 
 ### Emails not sending
-1. Check MailerSend API key is correct
-2. Verify sender email/domain in MailerSend
-3. Check MailerSend dashboard for bounces/blocks
+1. Check SendGrid API key is correct
+2. Verify sender email/domain in SendGrid
+3. Check SendGrid dashboard for bounces/blocks
 4. Review auth-api logs for errors
 
 ### Verification links not working
@@ -155,11 +155,11 @@ The following endpoints are automatically provided by better-auth:
 
 ### Template issues
 1. Test with default templates first
-2. Validate MailerSend template IDs
+2. Validate SendGrid template IDs (format: `d-xxxxxxxxxxxxx`)
 3. Check template variable names match
 
 ## 📚 Resources
 
-- [MailerSend Node.js SDK](https://github.com/mailersend/mailersend-nodejs)
+- [SendGrid Node.js SDK](https://github.com/sendgrid/sendgrid-nodejs)
 - [Better Auth Email Docs](https://www.better-auth.com/docs/concepts/email)
-- [MailerSend Dynamic Templates](https://developers.mailersend.com/general/templates.html)
+- [SendGrid Dynamic Templates](https://docs.sendgrid.com/ui/sending-email/how-to-send-an-email-with-dynamic-templates)
