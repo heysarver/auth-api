@@ -9,6 +9,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { toNodeHandler } from "better-auth/node";
 import { auth, pool } from "./lib/auth.js";
+import { validateTurnstileToken } from "./middleware/turnstile.js";
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -48,6 +49,9 @@ app.use("/api/", limiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Turnstile verification middleware (before Better Auth)
+app.use("/api/auth", validateTurnstileToken);
+
 // Better Auth handler
 app.use("/api/auth", toNodeHandler(auth));
 
@@ -71,7 +75,7 @@ app.get("/health", async (req, res) => {
     });
   }
 
-  res.json({
+  return res.json({
     status: "healthy",
     service: "auth-api",
     timestamp: new Date().toISOString(),
