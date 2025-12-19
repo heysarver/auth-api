@@ -8,7 +8,7 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { toNodeHandler } from "better-auth/node";
-import { auth } from "./lib/auth.js";
+import { auth, pool } from "./lib/auth.js";
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -51,8 +51,26 @@ app.use(express.urlencoded({ extended: true }));
 // Better Auth handler
 app.use("/api/auth", toNodeHandler(auth));
 
-// Health check endpoint
-app.get("/health", (req, res) => {
+// Health check endpoint with database connectivity test
+app.get("/health", async (req, res) => {
+  const errors: string[] = [];
+
+  // Check database connectivity
+  try {
+    await pool.query("SELECT 1");
+  } catch (error) {
+    errors.push(`Database unhealthy: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (errors.length > 0) {
+    return res.status(503).json({
+      status: "unhealthy",
+      service: "auth-api",
+      timestamp: new Date().toISOString(),
+      errors,
+    });
+  }
+
   res.json({
     status: "healthy",
     service: "auth-api",
