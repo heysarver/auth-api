@@ -7,6 +7,7 @@
     "dev": "nodemon --exec 'tsx --env-file=.env src/index.ts'",
     "build": "tsc",
     "start": "node dist/index.js",
+    "lint": "eslint .",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -27,13 +28,16 @@
     "pg": "^8.16.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/ioredis": "^4.28.10",
     "@types/node": "^24.5.2",
     "@types/pg": "^8.15.5",
+    "eslint": "^9.39.1",
     "nodemon": "^3.1.10",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.46.4"
   }
 }
