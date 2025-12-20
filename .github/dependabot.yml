@@ -32,7 +32,8 @@ updates:
         patterns:
           - "*"
         update-types:
-          - "security"
+          - "patch"
+          - "minor"
     ignore:
       # Pin major versions - update manually
       - dependency-name: "*"
