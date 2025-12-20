@@ -71,7 +71,7 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
 export async function sendVerificationEmail(
   email: string,
   verificationUrl: string,
-  token: string
+  _token: string
 ): Promise<void> {
   const appName = process.env.APP_NAME || 'MyApp';
   const productionDomain = process.env.PRODUCTION_DOMAIN || 'example.com';
@@ -164,7 +164,7 @@ Need help? Contact us at ${supportEmail}
 export async function sendPasswordResetEmail(
   email: string,
   resetUrl: string,
-  token: string
+  _token: string
 ): Promise<void> {
   const appName = process.env.APP_NAME || 'MyApp';
   const productionDomain = process.env.PRODUCTION_DOMAIN || 'example.com';
