@@ -35,22 +35,35 @@ A production-ready authentication service built with Express and better-auth, pr
 npm install
 ```
 
-2. Copy environment variables:
+2. Copy and configure environment variables:
 ```bash
 cp .env.example .env
 ```
 
-3. Generate a secure secret key:
+3. Copy and configure Liquibase properties:
+```bash
+cp migrations/liquibase.properties.example migrations/liquibase.properties
+```
+
+4. Generate a secure secret key:
 ```bash
 # Generate a cryptographically secure secret (min 32 characters)
 openssl rand -base64 32
 ```
 
-4. Configure your `.env` file with:
-   - Database connection string
-   - GitHub OAuth credentials
-   - Generated secret key (BETTER_AUTH_SECRET)
-   - Email service credentials (MailerSend)
+5. Configure your `.env` file with:
+   - `DATABASE_URL` - PostgreSQL connection string (format: `postgresql://user:password@host:port/database?schema=auth`)
+   - `BETTER_AUTH_SECRET` - Use the generated secret key from step 4 (min 32 characters)
+   - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` - GitHub OAuth credentials (optional)
+   - `SENDGRID_API_KEY` - Email service credentials (optional for development)
+   - `FRONTEND_URL` - Your frontend URL for CORS (default: `http://localhost:5173`)
+
+6. Configure `migrations/liquibase.properties` with:
+   - `url` - JDBC connection URL (format: `jdbc:postgresql://host:port/database`)
+   - `username` - Database username
+   - `password` - Database password
+
+   **Note**: This file is gitignored as it contains database credentials. Never commit it to version control.
 
 ### Database Setup
 
@@ -161,6 +174,43 @@ npm test
 npm run test:coverage
 ```
 
+## 🔄 Using as a Git Submodule
+
+This repository is designed to work as a standalone service or as a Git submodule in a larger monorepo.
+
+### Initial Setup as Submodule
+
+When first cloning a parent repository that includes this as a submodule:
+
+```bash
+# In the parent repository
+git submodule update --init --recursive
+cd auth-api
+npm install
+cp .env.example .env
+cp migrations/liquibase.properties.example migrations/liquibase.properties
+# Configure both files with your credentials
+```
+
+### Working with Submodules
+
+```bash
+# Update submodule to latest commit
+git submodule update --remote auth-api
+
+# Commit submodule changes in parent repo
+git add auth-api
+git commit -m "Update auth-api submodule"
+```
+
+### Configuration Files
+
+The following files are **gitignored** and must be configured locally:
+- `.env` - Application environment variables
+- `migrations/liquibase.properties` - Database migration credentials
+
+These files contain project-specific credentials and should never be committed to version control.
+
 ## 📄 License
 
-Proprietary - All rights reserved
+MIT License - See LICENSE file for details

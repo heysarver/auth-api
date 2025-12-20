@@ -1,13 +1,10 @@
-import { MailerSend, EmailParams, Sender, Recipient } from 'mailersend';
+import sgMail from '@sendgrid/mail';
 
-// Initialize MailerSend
-const mailerSendApiKey = process.env.MAILERSEND_API_KEY;
-let mailerSend: MailerSend | null = null;
+// Initialize SendGrid
+const sendgridApiKey = process.env.SENDGRID_API_KEY;
 
-if (mailerSendApiKey) {
-  mailerSend = new MailerSend({
-    apiKey: mailerSendApiKey,
-  });
+if (sendgridApiKey) {
+  sgMail.setApiKey(sendgridApiKey);
 }
 
 interface EmailOptions {
@@ -20,12 +17,12 @@ interface EmailOptions {
 }
 
 /**
- * Send an email using MailerSend
+ * Send an email using SendGrid
  */
 export async function sendEmail(options: EmailOptions): Promise<void> {
-  // If MailerSend is not configured, log and return (for development)
-  if (!mailerSend) {
-    console.log('📧 Email would be sent (MailerSend not configured):');
+  // If SendGrid is not configured, log and return (for development)
+  if (!sendgridApiKey) {
+    console.log('📧 Email would be sent (SendGrid not configured):');
     console.log('To:', options.to);
     console.log('Subject:', options.subject);
     if (options.text) console.log('Text:', options.text);
@@ -35,42 +32,34 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
 
   const appName = process.env.APP_NAME || 'MyApp';
   const productionDomain = process.env.PRODUCTION_DOMAIN || 'example.com';
-  const sentFrom = new Sender(
-    process.env.MAILERSEND_FROM_EMAIL || `noreply@${productionDomain}`,
-    process.env.MAILERSEND_FROM_NAME || appName
-  );
-  const recipients = [new Recipient(options.to)];
 
-  const emailParams = new EmailParams()
-    .setFrom(sentFrom)
-    .setTo(recipients)
-    .setSubject(options.subject);
+  const msg: any = {
+    to: options.to,
+    from: {
+      email: process.env.SENDGRID_FROM_EMAIL || `noreply@${productionDomain}`,
+      name: process.env.SENDGRID_FROM_NAME || appName
+    },
+    subject: options.subject,
+  };
 
   // Add content or template
   if (options.templateId) {
-    emailParams.setTemplateId(options.templateId);
+    msg.templateId = options.templateId;
     if (options.dynamicTemplateData) {
-      // MailerSend uses personalization for template variables
-      const personalization = [
-        {
-          email: options.to,
-          data: options.dynamicTemplateData
-        }
-      ];
-      emailParams.setPersonalization(personalization);
+      msg.dynamicTemplateData = options.dynamicTemplateData;
     }
   } else {
-    if (options.text) emailParams.setText(options.text);
-    if (options.html) emailParams.setHtml(options.html);
+    if (options.text) msg.text = options.text;
+    if (options.html) msg.html = options.html;
   }
 
   try {
-    await mailerSend.email.send(emailParams);
+    await sgMail.send(msg);
     console.log(`✅ Email sent to ${options.to}`);
   } catch (error: any) {
     console.error('❌ Error sending email:', error);
     if (error.response) {
-      console.error('MailerSend response:', error.response);
+      console.error('SendGrid response:', error.response.body);
     }
     throw error;
   }
@@ -91,11 +80,11 @@ export async function sendVerificationEmail(
   // Use the verificationUrl directly from better-auth (includes callbackURL redirect)
   const fullVerificationUrl = verificationUrl;
 
-  // Check if we have a MailerSend template ID for verification emails
-  const templateId = process.env.MAILERSEND_VERIFICATION_TEMPLATE_ID;
+  // Check if we have a SendGrid template ID for verification emails
+  const templateId = process.env.SENDGRID_VERIFICATION_TEMPLATE_ID;
 
   if (templateId) {
-    // Use MailerSend dynamic template
+    // Use SendGrid dynamic template
     await sendEmail({
       to: email,
       subject: 'Verify your email address',
@@ -184,11 +173,11 @@ export async function sendPasswordResetEmail(
   // Use the resetUrl directly from better-auth (includes callbackURL redirect)
   const fullResetUrl = resetUrl;
 
-  // Check if we have a MailerSend template ID for password reset emails
-  const templateId = process.env.MAILERSEND_RESET_TEMPLATE_ID;
+  // Check if we have a SendGrid template ID for password reset emails
+  const templateId = process.env.SENDGRID_RESET_TEMPLATE_ID;
 
   if (templateId) {
-    // Use MailerSend dynamic template
+    // Use SendGrid dynamic template
     await sendEmail({
       to: email,
       subject: 'Reset your password',

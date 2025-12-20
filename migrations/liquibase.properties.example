@@ -1,11 +1,12 @@
 # Liquibase Configuration for Auth API
 # This file contains the database connection properties for auth schema migrations
+# Copy this file to liquibase.properties and update with your database credentials
 
 # PostgreSQL connection
 driver=org.postgresql.Driver
-url=jdbc:postgresql://localhost:5432/feedvalue
-username=postgres
-password=postgres
+url=jdbc:postgresql://localhost:5432/your_database_name
+username=your_database_user
+password=your_database_password
 
 # Changelog file
 changeLogFile=changelog/db.changelog-master.yaml

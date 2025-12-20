@@ -1,13 +1,15 @@
+import dotenv from "dotenv";
+
+// Load environment variables FIRST before importing modules that use them
+dotenv.config();
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { toNodeHandler } from "better-auth/node";
-import { auth } from "./lib/auth.js";
-import dotenv from "dotenv";
-
-// Load environment variables
-dotenv.config();
+import { auth, pool } from "./lib/auth.js";
+import { validateTurnstileToken } from "./middleware/turnstile.js";
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -47,12 +49,33 @@ app.use("/api/", limiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Turnstile verification middleware (before Better Auth)
+app.use("/api/auth", validateTurnstileToken);
+
 // Better Auth handler
 app.use("/api/auth", toNodeHandler(auth));
 
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.json({
+// Health check endpoint with database connectivity test
+app.get("/health", async (req, res) => {
+  const errors: string[] = [];
+
+  // Check database connectivity
+  try {
+    await pool.query("SELECT 1");
+  } catch (error) {
+    errors.push(`Database unhealthy: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (errors.length > 0) {
+    return res.status(503).json({
+      status: "unhealthy",
+      service: "auth-api",
+      timestamp: new Date().toISOString(),
+      errors,
+    });
+  }
+
+  return res.json({
     status: "healthy",
     service: "auth-api",
     timestamp: new Date().toISOString(),

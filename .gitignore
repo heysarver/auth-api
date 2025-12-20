@@ -6,6 +6,9 @@ node_modules/
 .env.local
 .env.production
 
+# Database migration configuration (contains credentials)
+migrations/liquibase.properties
+
 # Build output
 dist/
 build/

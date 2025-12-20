@@ -2,10 +2,17 @@ import { betterAuth } from "better-auth";
 import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
+import { redis } from "./redis";
 
-// Initialize PostgreSQL connection pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+// Initialize PostgreSQL connection pool from DATABASE_URL
+// Format: postgresql://user:password@host:port/database?schema=auth
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL environment variable is required');
+}
+
+export const pool = new Pool({
+  connectionString: databaseUrl,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
@@ -23,11 +30,31 @@ export const auth = betterAuth({
   // Secret for signing tokens
   secret: process.env.BETTER_AUTH_SECRET,
 
+  // Secondary storage using ValKey/Redis for session data
+  secondaryStorage: {
+    get: async (key) => {
+      return await redis.get(key);
+    },
+    set: async (key, value, ttl) => {
+      if (ttl) {
+        await redis.set(key, value, "EX", ttl);
+      } else {
+        await redis.set(key, value);
+      }
+    },
+    delete: async (key) => {
+      await redis.del(key);
+    },
+  },
+
   // Plugins
   plugins: [
     jwt({
       jwks: {
         modelName: "jwks", // Explicitly set the model name
+        keyPairConfig: {
+          alg: "RS256", // Use RS256 for better compatibility with python-jose
+        },
       },
       jwt: {
         issuer: process.env.BETTER_AUTH_URL || "http://localhost:3002",
