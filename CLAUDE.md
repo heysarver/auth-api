@@ -30,6 +30,7 @@ This is the **auth-api** microservice, handling authentication using Better Auth
 - Configuration in src/lib/auth.ts
 - Uses PostgreSQL connection pool (not direct client)
 - JWT plugin enabled with JWKS support
+- **Secondary storage with Redis/ValKey** for session data and rate limiting (src/lib/redis.ts)
 - Session cookies prefixed (configurable via COOKIE_PREFIX)
 - Email verification uses SendGrid with fallback to plain HTML
 - Table model names must match exactly: `users`, `sessions`, `accounts`, `verifications`, `jwks`
@@ -56,8 +57,10 @@ src/
 ├── lib/
 │   ├── auth.ts          # Better Auth configuration (main)
 │   ├── auth-secure.ts   # Secure auth variant (if needed)
-│   └── email.ts         # MailerSend email handlers
-└── test-email.ts        # Email testing utility
+│   ├── email.ts         # SendGrid email handlers
+│   └── redis.ts         # Redis/ValKey client for secondary storage
+├── test-email.ts        # Email testing utility
+└── test-redis.ts        # Redis testing utility
 ```
 
 ## Important Implementation Details
@@ -72,11 +75,20 @@ src/
 ### Environment Variables
 See .env.example for full documentation. Critical variables:
 - `DATABASE_URL` - Must include `?schema=auth` parameter
+- `REDIS_URL` - Redis/ValKey connection string for secondary storage (default: redis://localhost:6379/1)
 - `BETTER_AUTH_SECRET` - Minimum 32 characters, shared with app-api for JWT validation
 - `BETTER_AUTH_URL` - Base URL for auth service (http://localhost:3002 in dev)
 - `SENDGRID_API_KEY` - Required for email verification (optional in dev)
 - `GITHUB_CLIENT_ID/SECRET` - For OAuth (optional)
 - `FRONTEND_URL` - For CORS configuration
+
+### Redis/ValKey Secondary Storage (src/lib/redis.ts)
+- Configured via `REDIS_URL` environment variable
+- Used by Better Auth for session data and rate limiting
+- Implements SecondaryStorage interface: `get`, `set` (with TTL), `delete`
+- Connection includes retry strategy and reconnection logic
+- Graceful shutdown handlers for SIGINT/SIGTERM
+- Test utility available: `tsx src/test-redis.ts`
 
 ### Email Handling (src/lib/email.ts)
 - Three main functions: `sendEmail`, `sendVerificationEmail`, `sendPasswordResetEmail`
