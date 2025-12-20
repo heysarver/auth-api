@@ -97,7 +97,7 @@ vi.mock("better-auth", () => ({
 }));
 
 vi.mock("better-auth/node", () => ({
-  toNodeHandler: vi.fn((_auth) => (req: any, res: any, next: any) => {
+  toNodeHandler: vi.fn((_auth) => (_req: any, _res: any, next: any) => {
     // Simple mock that calls next
     next();
   }),

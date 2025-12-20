@@ -47,9 +47,9 @@ describe("Middleware Stack Integration", () => {
 
   describe("Middleware Flow", () => {
     it("should flow through middleware chain correctly", async () => {
-      const middleware1 = vi.fn((req: Request, res: Response, next: NextFunction) => next());
-      const middleware2 = vi.fn((req: Request, res: Response, next: NextFunction) => next());
-      const middleware3 = vi.fn((req: Request, res: Response, next: NextFunction) => next());
+      const middleware1 = vi.fn((_req: Request, _res: Response, next: NextFunction) => next());
+      const middleware2 = vi.fn((_req: Request, _res: Response, next: NextFunction) => next());
+      const middleware3 = vi.fn((_req: Request, _res: Response, next: NextFunction) => next());
 
       const app = express();
       app.use(middleware1);
