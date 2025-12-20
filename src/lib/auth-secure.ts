@@ -125,6 +125,10 @@ export const auth = betterAuth({
       redirectURI: environment === 'production'
         ? `https://${productionDomain}/auth/callback/github`
         : `${frontendUrl}/auth/callback/github`,
+      // Enable PKCE for OAuth 2.1 compliance
+      pkce: true,
+      // Set specific scopes
+      scopes: ['read:user', 'user:email'],
     },
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -132,6 +136,10 @@ export const auth = betterAuth({
       redirectURI: environment === 'production'
         ? `https://${productionDomain}/auth/callback/google`
         : `${frontendUrl}/auth/callback/google`,
+      // Enable PKCE for OAuth 2.1 compliance
+      pkce: true,
+      // Set specific scopes
+      scopes: ['openid', 'profile', 'email'],
     },
   },
 
@@ -181,11 +189,22 @@ export const auth = betterAuth({
     },
   },
 
-  // Rate limiting
+  // Rate limiting with custom rules for sensitive endpoints
   rateLimit: {
     enabled: true,
     window: 60, // seconds
     max: 10, // requests per window
+    // Custom rate limits for sensitive endpoints
+    customRules: {
+      '/sign-in/email': {
+        window: 300, // 5 minutes
+        max: 5, // 5 attempts per 5 minutes
+      },
+      '/sign-up/email': {
+        window: 3600, // 1 hour
+        max: 3, // 3 signups per hour per IP
+      },
+    },
   },
 
   // Trusted origins for CORS - exact matching only
