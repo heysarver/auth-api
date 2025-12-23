@@ -1,8 +1,8 @@
 import { betterAuth } from "better-auth";
 import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
-import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
-import { redis } from "./redis";
+import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
+import { redis } from "./redis.js";
 
 // Initialize PostgreSQL connection pool from DATABASE_URL
 // Format: postgresql://user:password@host:port/database?schema=auth
@@ -51,6 +51,7 @@ export const auth = betterAuth({
   plugins: [
     jwt({
       jwks: {
+        // @ts-expect-error - modelName is a valid option but not in types
         modelName: "jwks", // Explicitly set the model name
         keyPairConfig: {
           alg: "RS256", // Use RS256 for better compatibility with python-jose
@@ -68,7 +69,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
-    sendResetPassword: async ({ user, url, token }, request) => {
+    sendResetPassword: async ({ user, url, token }) => {
       await sendPasswordResetEmail(user.email, url, token);
     },
   },
@@ -77,11 +78,11 @@ export const auth = betterAuth({
   emailVerification: {
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
-    sendVerificationEmail: async ({ user, url, token }, request) => {
+    sendVerificationEmail: async ({ user, url, token }) => {
       // The URL already contains callbackURL if client provided it during sign-up
       await sendVerificationEmail(user.email, url, token);
     },
-    async afterEmailVerification(user, request) {
+    async afterEmailVerification(user) {
       console.log(`✅ Email verified for user: ${user.email}`);
       // User will be auto-signed in and redirected to callbackURL (if provided by client)
     },
@@ -157,4 +158,3 @@ export const auth = betterAuth({
 
 // Export types for TypeScript
 export type Session = typeof auth.$Infer.Session;
-export type User = typeof auth.$Infer.User;

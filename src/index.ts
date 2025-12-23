@@ -56,7 +56,7 @@ app.use("/api/auth", validateTurnstileToken);
 app.use("/api/auth", toNodeHandler(auth));
 
 // Health check endpoint with database connectivity test
-app.get("/health", async (req, res) => {
+app.get("/health", async (_req, res) => {
   const errors: string[] = [];
 
   // Check database connectivity
@@ -83,7 +83,7 @@ app.get("/health", async (req, res) => {
 });
 
 // Root endpoint
-app.get("/", (req, res) => {
+app.get("/", (_req, res) => {
   res.json({
     service: "Auth API",
     version: "1.0.0",
@@ -100,7 +100,7 @@ app.use((req, res) => {
 });
 
 // Error handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error("Error:", err);
   res.status(err.status || 500).json({
     error: err.message || "Internal Server Error",

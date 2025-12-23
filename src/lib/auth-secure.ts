@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { Pool } from "pg";
-import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
+import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
 
 /**
  * Secure Better-Auth Configuration
@@ -53,7 +53,6 @@ const allowedCallbacks = ALLOWED_OAUTH_CALLBACKS[environment as keyof typeof ALL
 function validateCallbackURL(url: string): boolean {
   try {
     const parsedUrl = new URL(url);
-    const fullUrl = `${parsedUrl.protocol}//${parsedUrl.host}${parsedUrl.pathname}`;
 
     // Exact matching - no wildcards or partial matches
     const isAllowed = allowedCallbacks.some(allowed => {
@@ -92,7 +91,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
-    sendResetPassword: async ({ user, url, token }, request) => {
+    sendResetPassword: async ({ user, url, token }) => {
       // Validate reset URL before sending
       if (!validateCallbackURL(url)) {
         throw new Error('Invalid password reset URL');
@@ -105,14 +104,14 @@ export const auth = betterAuth({
   emailVerification: {
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
-    sendVerificationEmail: async ({ user, url, token }, request) => {
+    sendVerificationEmail: async ({ user, url, token }) => {
       // Validate verification URL before sending
       if (!validateCallbackURL(url)) {
         throw new Error('Invalid verification URL');
       }
       await sendVerificationEmail(user.email, url, token);
     },
-    async afterEmailVerification(user, request) {
+    async afterEmailVerification(user) {
       console.log(`✅ Email verified for user: ${user.email}`);
     },
   },
@@ -126,15 +125,10 @@ export const auth = betterAuth({
       redirectURI: environment === 'production'
         ? `https://${productionDomain}/auth/callback/github`
         : `${frontendUrl}/auth/callback/github`,
-      // Additional OAuth security options
-      options: {
-        // Enable PKCE for OAuth 2.1 compliance
-        pkce: true,
-        // Require state parameter
-        state: true,
-        // Set specific scopes
-        scope: ['read:user', 'user:email'],
-      },
+      // Enable PKCE for OAuth 2.1 compliance
+      pkce: true,
+      // Set specific scopes
+      scopes: ['read:user', 'user:email'],
     },
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -142,11 +136,10 @@ export const auth = betterAuth({
       redirectURI: environment === 'production'
         ? `https://${productionDomain}/auth/callback/google`
         : `${frontendUrl}/auth/callback/google`,
-      options: {
-        pkce: true,
-        state: true,
-        scope: ['openid', 'profile', 'email'],
-      },
+      // Enable PKCE for OAuth 2.1 compliance
+      pkce: true,
+      // Set specific scopes
+      scopes: ['openid', 'profile', 'email'],
     },
   },
 
@@ -158,13 +151,6 @@ export const auth = betterAuth({
     cookieCache: {
       enabled: true,
       maxAge: 300, // 5 minutes
-    },
-    // Additional session security
-    cookie: {
-      secure: environment === 'production', // HTTPS only in production
-      httpOnly: true, // Prevent XSS
-      sameSite: 'lax', // CSRF protection
-      path: '/',
     },
   },
 
@@ -195,22 +181,26 @@ export const auth = betterAuth({
     crossSubDomainCookies: {
       enabled: false, // Disable for security
     },
-    // Disable dynamic callback URLs
-    allowDynamicCallbackURL: false,
+    defaultCookieAttributes: {
+      secure: environment === 'production', // HTTPS only in production
+      httpOnly: true, // Prevent XSS
+      sameSite: 'lax' as const, // CSRF protection
+      path: '/',
+    },
   },
 
-  // Rate limiting
+  // Rate limiting with custom rules for sensitive endpoints
   rateLimit: {
     enabled: true,
     window: 60, // seconds
     max: 10, // requests per window
     // Custom rate limits for sensitive endpoints
-    custom: {
-      '/api/auth/sign-in': {
+    customRules: {
+      '/sign-in/email': {
         window: 300, // 5 minutes
         max: 5, // 5 attempts per 5 minutes
       },
-      '/api/auth/sign-up': {
+      '/sign-up/email': {
         window: 3600, // 1 hour
         max: 3, // 3 signups per hour per IP
       },
@@ -221,44 +211,7 @@ export const auth = betterAuth({
   trustedOrigins: environment === 'production'
     ? [`https://${productionDomain}`]
     : [frontendUrl, process.env.API_URL || 'http://localhost:3001'],
-
-  // Security hooks for additional validation
-  hooks: {
-    // Validate all redirect URLs before processing
-    beforeRedirect: async ({ url, user, request }) => {
-      if (!validateCallbackURL(url)) {
-        throw new Error('Unauthorized redirect URL');
-      }
-      return url;
-    },
-
-    // Validate OAuth state parameter
-    beforeOAuthCallback: async ({ provider, state, request }) => {
-      if (!state || state.length < 32) {
-        throw new Error('Invalid OAuth state parameter');
-      }
-      // Additional state validation logic here
-      return true;
-    },
-
-    // Log security events
-    afterSignIn: async ({ user, session }) => {
-      console.log(`Security: User ${user.email} signed in from IP ${session.ipAddress}`);
-    },
-
-    // Validate session integrity
-    beforeSessionRefresh: async ({ session, user }) => {
-      // Check for suspicious activity
-      if (session.ipAddress !== session.originalIpAddress) {
-        console.warn(`Security: IP address changed for session ${session.id}`);
-        // Optionally invalidate session
-        // return false;
-      }
-      return true;
-    },
-  },
 });
 
 // Export types for TypeScript
 export type Session = typeof auth.$Infer.Session;
-export type User = typeof auth.$Infer.User;
