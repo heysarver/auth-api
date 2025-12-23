@@ -5,7 +5,7 @@
  */
 
 import dotenv from 'dotenv';
-import { sendVerificationEmail, sendPasswordResetEmail } from './lib/email';
+import { sendVerificationEmail, sendPasswordResetEmail } from './lib/email.js';
 
 // Load environment variables
 dotenv.config();

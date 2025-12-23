@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { Pool } from "pg";
-import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
+import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
 
 /**
  * Secure Better-Auth Configuration

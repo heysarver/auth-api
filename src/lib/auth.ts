@@ -1,8 +1,8 @@
 import { betterAuth } from "better-auth";
 import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
-import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
-import { redis } from "./redis";
+import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
+import { redis } from "./redis.js";
 
 // Initialize PostgreSQL connection pool from DATABASE_URL
 // Format: postgresql://user:password@host:port/database?schema=auth
