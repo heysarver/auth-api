@@ -20,7 +20,6 @@ import { resourceFromAttributes } from "@opentelemetry/resources";
 import {
   ATTR_SERVICE_NAME,
   ATTR_SERVICE_VERSION,
-  ATTR_DEPLOYMENT_ENVIRONMENT,
 } from "@opentelemetry/semantic-conventions";
 
 // Skip instrumentation in test environment to avoid interfering with mocks
@@ -31,7 +30,7 @@ if (process.env.NODE_ENV === "test") {
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || "auth-api",
     [ATTR_SERVICE_VERSION]: process.env.npm_package_version || "1.0.0",
-    [ATTR_DEPLOYMENT_ENVIRONMENT]: process.env.ENVIRONMENT || process.env.NODE_ENV || "development",
+    "deployment.environment": process.env.ENVIRONMENT || process.env.NODE_ENV || "development",
   });
 
   // Configure OTLP exporters

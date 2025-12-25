@@ -45,15 +45,16 @@ const limiter = rateLimit({
 });
 app.use("/api/", limiter);
 
-// Body parser middleware (needed for our custom endpoints)
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
 // Turnstile verification middleware (before Better Auth)
 app.use("/api/auth", validateTurnstileToken);
 
-// Better Auth handler
-app.use("/api/auth", toNodeHandler(auth));
+// Better Auth handler (Express v5 uses /*splat syntax for catch-all routes)
+app.all("/api/auth/*splat", toNodeHandler(auth));
+
+// Body parser middleware AFTER Better Auth handler
+// (Better Auth handles its own body parsing)
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint with database connectivity test
 app.get("/health", async (_req, res) => {

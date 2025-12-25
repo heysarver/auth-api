@@ -148,7 +148,8 @@ vi.mock("@opentelemetry/resources", () => ({
 vi.mock("@opentelemetry/semantic-conventions", () => ({
   ATTR_SERVICE_NAME: "service.name",
   ATTR_SERVICE_VERSION: "service.version",
-  ATTR_DEPLOYMENT_ENVIRONMENT: "deployment.environment",
+  // Note: ATTR_DEPLOYMENT_ENVIRONMENT doesn't exist in semantic-conventions
+  // Use plain string "deployment.environment" instead
 }));
 
 // Reset all mocks before each test (but don't export this one)

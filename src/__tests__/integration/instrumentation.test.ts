@@ -63,13 +63,13 @@ describe("OpenTelemetry Instrumentation", () => {
     it("should include required semantic conventions", async () => {
       const {
         ATTR_SERVICE_NAME,
-        ATTR_SERVICE_VERSION,
-        ATTR_DEPLOYMENT_ENVIRONMENT
+        ATTR_SERVICE_VERSION
       } = await import("@opentelemetry/semantic-conventions");
 
       expect(ATTR_SERVICE_NAME).toBe("service.name");
       expect(ATTR_SERVICE_VERSION).toBe("service.version");
-      expect(ATTR_DEPLOYMENT_ENVIRONMENT).toBe("deployment.environment");
+      // Note: deployment.environment is set as a plain string, not a constant
+      // because ATTR_DEPLOYMENT_ENVIRONMENT doesn't exist in semantic-conventions
     });
   });
 
