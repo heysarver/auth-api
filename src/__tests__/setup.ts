@@ -5,7 +5,8 @@
 
 import { vi, afterAll } from "vitest";
 
-// Set test environment variables
+// CRITICAL: Set NODE_ENV=test BEFORE importing instrumentation
+// This prevents OpenTelemetry from initializing during tests
 process.env.NODE_ENV = "test";
 process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test?schema=auth";
 process.env.REDIS_URL = "redis://localhost:6379/15";
@@ -105,6 +106,49 @@ vi.mock("better-auth/node", () => ({
 
 vi.mock("better-auth/plugins", () => ({
   jwt: vi.fn(() => ({})),
+}));
+
+// Mock OpenTelemetry SDK and instrumentations
+// These mocks prevent actual telemetry initialization during tests
+vi.mock("@opentelemetry/sdk-node", () => ({
+  NodeSDK: vi.fn(() => ({
+    start: vi.fn(),
+    shutdown: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+vi.mock("@opentelemetry/auto-instrumentations-node", () => ({
+  getNodeAutoInstrumentations: vi.fn(() => []),
+}));
+
+vi.mock("@opentelemetry/exporter-trace-otlp-grpc", () => ({
+  OTLPTraceExporter: vi.fn(() => ({
+    export: vi.fn(),
+    shutdown: vi.fn(),
+  })),
+}));
+
+vi.mock("@opentelemetry/exporter-metrics-otlp-grpc", () => ({
+  OTLPMetricExporter: vi.fn(() => ({
+    export: vi.fn(),
+    shutdown: vi.fn(),
+  })),
+}));
+
+vi.mock("@opentelemetry/sdk-metrics", () => ({
+  PeriodicExportingMetricReader: vi.fn(() => ({
+    shutdown: vi.fn(),
+  })),
+}));
+
+vi.mock("@opentelemetry/resources", () => ({
+  Resource: vi.fn((attrs) => ({ attributes: attrs })),
+}));
+
+vi.mock("@opentelemetry/semantic-conventions", () => ({
+  ATTR_SERVICE_NAME: "service.name",
+  ATTR_SERVICE_VERSION: "service.version",
+  ATTR_DEPLOYMENT_ENVIRONMENT: "deployment.environment",
 }));
 
 // Reset all mocks before each test (but don't export this one)
