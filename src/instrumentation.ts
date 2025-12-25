@@ -16,11 +16,11 @@ import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentation
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-grpc";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-grpc";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
-import { Resource } from "@opentelemetry/resources";
+import { resourceFromAttributes } from "@opentelemetry/resources";
 import {
   ATTR_SERVICE_NAME,
-  ATTR_DEPLOYMENT_ENVIRONMENT,
   ATTR_SERVICE_VERSION,
+  ATTR_DEPLOYMENT_ENVIRONMENT,
 } from "@opentelemetry/semantic-conventions";
 
 // Skip instrumentation in test environment to avoid interfering with mocks
@@ -28,7 +28,7 @@ if (process.env.NODE_ENV === "test") {
   console.log("Skipping OpenTelemetry instrumentation in test environment");
 } else {
   // Configure resource attributes
-  const resource = new Resource({
+  const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || "auth-api",
     [ATTR_SERVICE_VERSION]: process.env.npm_package_version || "1.0.0",
     [ATTR_DEPLOYMENT_ENVIRONMENT]: process.env.ENVIRONMENT || process.env.NODE_ENV || "development",
@@ -99,19 +99,22 @@ if (process.env.NODE_ENV === "test") {
   console.log(`Exporting telemetry to: ${otlpEndpoint}`);
 
   // Gracefully shut down the SDK on process termination
-  const shutdown = async () => {
-    try {
-      await sdk.shutdown();
-      console.log("OpenTelemetry SDK shut down successfully");
-    } catch (error) {
-      console.error("Error shutting down OpenTelemetry SDK:", error);
-    } finally {
-      process.exit(0);
-    }
-  };
+  // Note: Only add these handlers in non-test environments
+  if (process.env.NODE_ENV !== "test") {
+    const shutdown = async () => {
+      try {
+        await sdk.shutdown();
+        console.log("OpenTelemetry SDK shut down successfully");
+      } catch (error) {
+        console.error("Error shutting down OpenTelemetry SDK:", error);
+      } finally {
+        process.exit(0);
+      }
+    };
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+  }
 }
 
 export default {};

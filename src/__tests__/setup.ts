@@ -142,7 +142,7 @@ vi.mock("@opentelemetry/sdk-metrics", () => ({
 }));
 
 vi.mock("@opentelemetry/resources", () => ({
-  Resource: vi.fn((attrs) => ({ attributes: attrs })),
+  resourceFromAttributes: vi.fn((attrs) => ({ attributes: attrs })),
 }));
 
 vi.mock("@opentelemetry/semantic-conventions", () => ({
