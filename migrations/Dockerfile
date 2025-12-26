@@ -6,11 +6,11 @@ FROM liquibase/liquibase:4.30-alpine
 # Set working directory
 WORKDIR /liquibase/changelog
 
-# Copy migration files
-COPY migrations/changelog/ ./
-COPY migrations/liquibase.properties.example ./liquibase.properties.template
+# Copy migration files (build context is migrations/ directory)
+COPY changelog/ ./
+COPY liquibase.properties.example ./liquibase.properties.template
 
 # Copy entrypoint script (already executable from host)
-COPY migrations/docker-entrypoint.sh /docker-entrypoint.sh
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
