@@ -54,5 +54,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start production server
-CMD ["node", "dist/index.js"]
+# Start production server with OTEL instrumentation
+CMD ["node", "--import", "./dist/instrumentation.js", "dist/index.js"]
