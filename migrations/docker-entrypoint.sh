@@ -1,6 +1,19 @@
 #!/bin/sh
 set -e
 
+echo "Creating PostgreSQL schemas..."
+
+# Create schemas if they don't exist
+PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+  -h "${POSTGRES_HOST}" \
+  -p "${POSTGRES_PORT}" \
+  -U "${POSTGRES_USER}" \
+  -d "${POSTGRES_DB}" \
+  -c "CREATE SCHEMA IF NOT EXISTS auth;" \
+  -c "CREATE SCHEMA IF NOT EXISTS liquibase;"
+
+echo "Schemas created successfully"
+
 # Create liquibase.properties in /tmp (writable by non-root user)
 cat > /tmp/liquibase.properties <<PROPS
 driver=org.postgresql.Driver

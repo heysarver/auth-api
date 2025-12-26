@@ -3,6 +3,9 @@
 
 FROM liquibase/liquibase:4.30-alpine
 
+# Install PostgreSQL client for schema creation
+RUN apk add --no-cache postgresql-client
+
 # Set working directory
 WORKDIR /liquibase/changelog
 
