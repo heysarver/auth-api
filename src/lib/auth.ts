@@ -16,6 +16,10 @@ export const pool = new Pool({
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  // CRITICAL: Set search_path for Better Auth to find tables in auth schema
+  // Better Auth's databaseSchema config doesn't work with Kysely+PostgreSQL
+  // See: https://github.com/better-auth/better-auth/blob/canary/docs/content/docs/adapters/postgresql.mdx
+  options: "-c search_path=auth",
 });
 
 export const auth = betterAuth({
