@@ -96,16 +96,21 @@ npm start
 
 ## 🔗 API Endpoints
 
-### Authentication Routes
+### Subdomain Routing Architecture
 
-All auth routes are prefixed with `/api/auth/`:
+**Production**: `https://auth.domain.com`
+**Staging**: `https://auth-staging.domain.com`
+**Local Development**: `http://localhost:3002`
 
-- `POST /api/auth/sign-up` - Register new user
-- `POST /api/auth/sign-in` - Sign in with email/password
-- `POST /api/auth/sign-out` - Sign out user
-- `GET /api/auth/session` - Get current session
-- `GET /api/auth/github` - GitHub OAuth flow
-- `GET /api/auth/callback/github` - GitHub OAuth callback
+All auth routes are at the **root path** (no `/api/auth/` prefix):
+
+- `POST /sign-up` - Register new user
+- `POST /sign-in` - Sign in with email/password
+- `POST /sign-out` - Sign out user
+- `GET /session` - Get current session
+- `GET /github` - GitHub OAuth flow
+- `GET /callback/github` - GitHub OAuth callback
+- `GET /jwks` - JWKS endpoint for JWT validation
 
 ### Utility Routes
 
@@ -157,10 +162,11 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 | `NODE_ENV` | Environment | development |
 | `DATABASE_URL` | PostgreSQL connection string | - |
 | `BETTER_AUTH_SECRET` | Secret for JWT signing (min 32 chars) | - |
-| `BETTER_AUTH_URL` | Base URL for auth | http://localhost:3002 |
+| `BETTER_AUTH_URL` | Base URL for auth (subdomain: auth.domain.com) | http://localhost:3002 |
 | `GITHUB_CLIENT_ID` | GitHub OAuth client ID | - |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth client secret | - |
-| `FRONTEND_URL` | Frontend URL for CORS | http://localhost:5173 |
+| `FRONTEND_URL` | Frontend URL for CORS (domain.com) | http://localhost:5173 |
+| `API_URL` | Core API URL for CORS (api.domain.com) | http://localhost:3001 |
 | `SESSION_EXPIRES_IN` | Session duration in seconds | 86400 |
 | `SESSION_UPDATE_AGE` | Session refresh interval | 3600 |
 
