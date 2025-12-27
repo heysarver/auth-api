@@ -23,11 +23,19 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'", "https://challenges.cloudflare.com"],
+      scriptSrcAttr: ["'none'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrcAttr: ["'unsafe-inline'"],
       frameSrc: ["'self'", "https://challenges.cloudflare.com"],
       connectSrc: ["'self'", "https://challenges.cloudflare.com"],
       imgSrc: ["'self'", "data:", "https:"],
+      fontSrc: ["'self'", "data:"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      upgradeInsecureRequests: [],
     },
   },
 }));
