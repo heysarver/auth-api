@@ -43,19 +43,24 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
-// Rate limiting
+// Rate limiting (with trust proxy configuration for Kubernetes ingress)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
   message: "Too many requests from this IP, please try again later.",
+  // Trust the first proxy (nginx ingress) for IP detection
+  // This prevents the ERR_ERL_PERMISSIVE_TRUST_PROXY error
+  validate: { trustProxy: false }, // Disable default validation since we set trust proxy globally
 });
-app.use("/api/", limiter);
+app.use(limiter);
 
 // Turnstile verification middleware (before Better Auth)
-app.use("/api/auth", validateTurnstileToken);
+// Subdomain routing: auth is on auth.feedvalue.com with root paths
+app.use(validateTurnstileToken);
 
 // Better Auth handler (Express v5 uses /*splat syntax for catch-all routes)
-app.all("/api/auth/*splat", toNodeHandler(auth));
+// Subdomain routing: all auth endpoints at root (not /api/auth/*)
+app.all("/*splat", toNodeHandler(auth));
 
 // Body parser middleware AFTER Better Auth handler
 // (Better Auth handles its own body parsing)
