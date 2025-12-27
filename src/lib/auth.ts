@@ -28,8 +28,12 @@ export const auth = betterAuth({
   // Use separate auth schema as per CODE_GUIDE.md
   databaseSchema: "auth",
 
-  // Base URL configuration
+  // Base URL configuration (subdomain routing)
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3002",
+
+  // CRITICAL: Set basePath to "/" for subdomain routing
+  // Default is "/api/auth" which breaks subdomain architecture
+  basePath: "/",
 
   // Secret for signing tokens
   secret: process.env.BETTER_AUTH_SECRET,
