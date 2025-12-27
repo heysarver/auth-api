@@ -54,20 +54,7 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Turnstile verification middleware (before Better Auth)
-// Subdomain routing: auth is on auth.feedvalue.com with root paths
-app.use(validateTurnstileToken);
-
-// Better Auth handler (Express v5 uses /*splat syntax for catch-all routes)
-// Subdomain routing: all auth endpoints at root (not /api/auth/*)
-app.all("/*splat", toNodeHandler(auth));
-
-// Body parser middleware AFTER Better Auth handler
-// (Better Auth handles its own body parsing)
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Health check endpoint with database connectivity test
+// Health check endpoint (MUST be before Better Auth catch-all)
 app.get("/health", async (_req, res) => {
   const errors: string[] = [];
 
@@ -94,14 +81,19 @@ app.get("/health", async (_req, res) => {
   });
 });
 
-// Root endpoint
-app.get("/", (_req, res) => {
-  res.json({
-    service: "Auth API",
-    version: "1.0.0",
-    documentation: "/api/auth",
-  });
+// Turnstile verification middleware (after /health, before Better Auth)
+// Subdomain routing: auth is on auth.feedvalue.com with root paths
+// IMPORTANT: Excludes /health endpoint from Turnstile verification
+app.use((req, res, next) => {
+  if (req.path === "/health") {
+    return next();
+  }
+  return validateTurnstileToken(req, res, next);
 });
+
+// Better Auth handler (Express v5 uses /*splat syntax for catch-all routes)
+// Subdomain routing: all auth endpoints at root (not /api/auth/*)
+app.all("/*splat", toNodeHandler(auth));
 
 // 404 handler
 app.use((req, res) => {
