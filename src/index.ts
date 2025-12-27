@@ -14,6 +14,10 @@ import { validateTurnstileToken } from "./middleware/turnstile.js";
 const app = express();
 const PORT = process.env.PORT || 3002;
 
+// Trust proxy when running behind ingress/load balancer
+// This allows Express to use X-Forwarded-* headers for client IP detection
+app.set("trust proxy", true);
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
