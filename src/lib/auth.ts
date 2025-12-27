@@ -59,7 +59,6 @@ export const auth = betterAuth({
   plugins: [
     jwt({
       jwks: {
-        // @ts-expect-error - modelName is a valid option but not in types
         modelName: "jwks", // Explicitly set the model name
         keyPairConfig: {
           alg: "RS256", // Use RS256 for better compatibility with python-jose
