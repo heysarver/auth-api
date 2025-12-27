@@ -154,10 +154,11 @@ export const auth = betterAuth({
   },
 
   // Rate limiting
+  // Environment-specific limits: dev/staging more lenient, production stricter
   rateLimit: {
     enabled: true,
     window: 60, // seconds
-    max: 10, // requests per window
+    max: process.env.NODE_ENV === "production" ? 100 : 300, // requests per window
   },
 
   // Trusted origins for CORS
