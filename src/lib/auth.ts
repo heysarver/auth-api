@@ -141,14 +141,14 @@ export const auth = betterAuth({
   // Advanced configuration
   advanced: {
     cookiePrefix: process.env.COOKIE_PREFIX || "auth",
-    useSecureCookies: process.env.NODE_ENV === "production",
+    useSecureCookies: process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging",
     crossSubDomainCookies: {
       enabled: false,
     },
-    // For development: Allow cookies to work across different localhost ports
+    // Cookie domain: localhost for dev, undefined for staging/production (uses request domain)
     defaultCookieAttributes: {
       sameSite: "lax",
-      domain: process.env.NODE_ENV === "production" ? undefined : "localhost",
+      domain: process.env.NODE_ENV === "development" ? "localhost" : undefined,
       path: "/",
     },
   },
