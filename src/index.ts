@@ -51,6 +51,10 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
+// Body parsing middleware (MUST be before routes)
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Rate limiting (with trust proxy configuration for Kubernetes ingress)
 // Environment-specific limits: dev/staging more lenient, production stricter
 const limiter = rateLimit({
