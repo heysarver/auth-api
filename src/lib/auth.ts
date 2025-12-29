@@ -142,18 +142,18 @@ export const auth = betterAuth({
   advanced: {
     cookiePrefix: process.env.COOKIE_PREFIX || "auth",
     useSecureCookies: process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging",
+    // Cross-subdomain cookie configuration
+    // Enable this when using subdomains (e.g., auth-staging.feedvalue.com and staging.feedvalue.com)
     crossSubDomainCookies: {
-      enabled: false,
+      enabled: !!process.env.COOKIE_DOMAIN, // Enable if COOKIE_DOMAIN is set
+      domain: process.env.COOKIE_DOMAIN || undefined, // e.g., "feedvalue.com" (without leading dot)
     },
-    // Cookie domain configuration:
-    // - Development: "localhost" (hardcoded)
-    // - Staging/Production: Use COOKIE_DOMAIN env var (e.g., ".feedvalue.com" for cross-subdomain)
-    // - If COOKIE_DOMAIN not set: undefined (uses exact request domain)
+    // Default cookie attributes
     defaultCookieAttributes: {
       sameSite: "lax",
       domain: process.env.NODE_ENV === "development"
         ? "localhost"
-        : process.env.COOKIE_DOMAIN || undefined,
+        : undefined, // Let crossSubDomainCookies handle the domain
       path: "/",
     },
   },
