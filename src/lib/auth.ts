@@ -159,7 +159,7 @@ export const auth = betterAuth({
       secure: true, // Required when sameSite: "none"
       domain: process.env.NODE_ENV === "development"
         ? "localhost"
-        : undefined, // Let crossSubDomainCookies handle the domain
+        : (process.env.COOKIE_DOMAIN || undefined), // Set domain for cross-subdomain cookies
       path: "/",
     },
   },
