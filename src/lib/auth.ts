@@ -143,17 +143,24 @@ export const auth = betterAuth({
     cookiePrefix: process.env.COOKIE_PREFIX || "auth",
     useSecureCookies: process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging",
     // Cross-subdomain cookie configuration
-    // IMPORTANT: Cross-subdomain (auth-staging.domain.com → staging.domain.com) is SAME-SITE, not cross-site
-    // Better Auth defaults to sameSite: "lax" which is correct for same-site subdomain navigation
-    // Using sameSite: "none" would create partitioned cookies that break OAuth state validation
+    // Based on working examples: https://github.com/better-auth/better-auth/discussions/5670
     crossSubDomainCookies: {
-      enabled: !!process.env.COOKIE_DOMAIN, // Enable if COOKIE_DOMAIN is set
-      domain: process.env.COOKIE_DOMAIN || undefined, // e.g., "yourdomain.com" (without leading dot)
+      enabled: !!process.env.COOKIE_DOMAIN,
+      // CRITICAL: Leading dot required for cross-subdomain cookies
+      domain: process.env.COOKIE_DOMAIN ? `.${process.env.COOKIE_DOMAIN}` : undefined,
     },
-    // Let Better Auth handle cookie attributes with appropriate defaults
-    // - sameSite: "lax" (correct for cross-subdomain)
-    // - secure: true (from useSecureCookies)
-    // - domain: inherited from crossSubDomainCookies
+    // Default cookie attributes for cross-domain OAuth
+    // Based on: https://github.com/better-auth/better-auth/discussions/5670
+    defaultCookieAttributes: {
+      sameSite: process.env.NODE_ENV === "development" ? "lax" : "none", // "none" required for cross-domain OAuth
+      secure: true, // Required with sameSite: "none"
+      httpOnly: true,
+      partitioned: false, // Prevent browsers from blocking partitioned cookies
+      domain: process.env.NODE_ENV === "development"
+        ? "localhost"
+        : undefined, // Let crossSubDomainCookies handle the domain
+      path: "/",
+    },
   },
 
   // Rate limiting
