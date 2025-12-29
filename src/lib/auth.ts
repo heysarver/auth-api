@@ -149,8 +149,11 @@ export const auth = betterAuth({
       domain: process.env.COOKIE_DOMAIN || undefined, // e.g., "feedvalue.com" (without leading dot)
     },
     // Default cookie attributes
+    // IMPORTANT: OAuth callbacks are cross-site navigations and require sameSite: "none"
+    // Otherwise the state cookie won't be sent during OAuth provider callback
     defaultCookieAttributes: {
-      sameSite: "lax",
+      sameSite: process.env.NODE_ENV === "development" ? "lax" : "none", // "none" required for OAuth in production/staging
+      secure: true, // Required when sameSite: "none"
       domain: process.env.NODE_ENV === "development"
         ? "localhost"
         : undefined, // Let crossSubDomainCookies handle the domain
