@@ -145,10 +145,15 @@ export const auth = betterAuth({
     crossSubDomainCookies: {
       enabled: false,
     },
-    // Cookie domain: localhost for dev, undefined for staging/production (uses request domain)
+    // Cookie domain configuration:
+    // - Development: "localhost" (hardcoded)
+    // - Staging/Production: Use COOKIE_DOMAIN env var (e.g., ".feedvalue.com" for cross-subdomain)
+    // - If COOKIE_DOMAIN not set: undefined (uses exact request domain)
     defaultCookieAttributes: {
       sameSite: "lax",
-      domain: process.env.NODE_ENV === "development" ? "localhost" : undefined,
+      domain: process.env.NODE_ENV === "development"
+        ? "localhost"
+        : process.env.COOKIE_DOMAIN || undefined,
       path: "/",
     },
   },
