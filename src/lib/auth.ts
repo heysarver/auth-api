@@ -147,6 +147,9 @@ export const auth = betterAuth({
     crossSubDomainCookies: {
       enabled: !!process.env.COOKIE_DOMAIN, // Enable if COOKIE_DOMAIN is set
       domain: process.env.COOKIE_DOMAIN || undefined, // e.g., "feedvalue.com" (without leading dot)
+      // CRITICAL: Include state cookie for OAuth to work across subdomains
+      // The state cookie stores OAuth flow state and must be accessible during callback
+      additionalCookies: ["state"],
     },
     // Default cookie attributes
     // IMPORTANT: OAuth callbacks are cross-site navigations and require sameSite: "none"
