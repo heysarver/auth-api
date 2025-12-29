@@ -143,14 +143,12 @@ export const auth = betterAuth({
     cookiePrefix: process.env.COOKIE_PREFIX || "auth",
     useSecureCookies: process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging",
     // Cross-subdomain cookie configuration
-    // IMPORTANT: Cross-subdomain (auth-staging.feedvalue.com → staging.feedvalue.com) is SAME-SITE, not cross-site
+    // IMPORTANT: Cross-subdomain (auth-staging.domain.com → staging.domain.com) is SAME-SITE, not cross-site
     // Better Auth defaults to sameSite: "lax" which is correct for same-site subdomain navigation
     // Using sameSite: "none" would create partitioned cookies that break OAuth state validation
     crossSubDomainCookies: {
-      enabled: process.env.NODE_ENV !== "development",
-      domain: process.env.NODE_ENV === "development"
-        ? undefined
-        : "feedvalue.com", // Without leading dot, as per Better Auth spec
+      enabled: !!process.env.COOKIE_DOMAIN, // Enable if COOKIE_DOMAIN is set
+      domain: process.env.COOKIE_DOMAIN || undefined, // e.g., "yourdomain.com" (without leading dot)
     },
     // Let Better Auth handle cookie attributes with appropriate defaults
     // - sameSite: "lax" (correct for cross-subdomain)
