@@ -143,25 +143,17 @@ export const auth = betterAuth({
     cookiePrefix: process.env.COOKIE_PREFIX || "auth",
     useSecureCookies: process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging",
     // Cross-subdomain cookie configuration
-    // Enable this when using subdomains (e.g., auth-staging.feedvalue.com and staging.feedvalue.com)
+    // IMPORTANT: Cross-subdomain (auth-staging.domain.com → staging.domain.com) is SAME-SITE, not cross-site
+    // Better Auth defaults to sameSite: "lax" which is correct for same-site subdomain navigation
+    // Using sameSite: "none" would create partitioned cookies that break OAuth state validation
     crossSubDomainCookies: {
       enabled: !!process.env.COOKIE_DOMAIN, // Enable if COOKIE_DOMAIN is set
-      domain: process.env.COOKIE_DOMAIN || undefined, // e.g., "feedvalue.com" (without leading dot)
-      // CRITICAL: Include state cookie for OAuth to work across subdomains
-      // The state cookie stores OAuth flow state and must be accessible during callback
-      additionalCookies: ["state"],
+      domain: process.env.COOKIE_DOMAIN || undefined, // e.g., "yourdomain.com" (without leading dot)
     },
-    // Default cookie attributes
-    // IMPORTANT: OAuth callbacks are cross-site navigations and require sameSite: "none"
-    // Otherwise the state cookie won't be sent during OAuth provider callback
-    defaultCookieAttributes: {
-      sameSite: process.env.NODE_ENV === "development" ? "lax" : "none", // "none" required for OAuth in production/staging
-      secure: true, // Required when sameSite: "none"
-      domain: process.env.NODE_ENV === "development"
-        ? "localhost"
-        : (process.env.COOKIE_DOMAIN || undefined), // Set domain for cross-subdomain cookies
-      path: "/",
-    },
+    // Let Better Auth handle cookie attributes with appropriate defaults
+    // - sameSite: "lax" (correct for cross-subdomain)
+    // - secure: true (from useSecureCookies)
+    // - domain: inherited from crossSubDomainCookies
   },
 
   // Rate limiting
