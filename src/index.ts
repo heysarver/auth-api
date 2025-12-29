@@ -100,10 +100,11 @@ app.get("/health", async (_req, res) => {
 
 // Turnstile verification middleware (after /health, before Better Auth)
 // Subdomain routing: auth is on auth.feedvalue.com with root paths
-// IMPORTANT: Excludes /health and /token endpoints from Turnstile verification
-// /token is an authenticated endpoint that requires a session cookie, not Turnstile
+// IMPORTANT: Excludes authenticated endpoints from Turnstile verification
+// These endpoints require session cookies, not Turnstile tokens
+const excludedPaths = ["/health", "/token", "/session", "/jwks"];
 app.use((req, res, next) => {
-  if (req.path === "/health" || req.path === "/token") {
+  if (excludedPaths.includes(req.path)) {
     return next();
   }
   return validateTurnstileToken(req, res, next);
