@@ -1,3 +1,7 @@
+// CRITICAL: Import instrumentation FIRST before any other code
+// This ensures OpenTelemetry auto-instrumentation captures all telemetry
+import "./instrumentation.js";
+
 import dotenv from "dotenv";
 
 // Load environment variables FIRST before importing modules that use them
