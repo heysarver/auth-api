@@ -149,11 +149,12 @@ export const auth = betterAuth({
       // CRITICAL: Leading dot required for cross-subdomain cookies
       domain: process.env.COOKIE_DOMAIN ? `.${process.env.COOKIE_DOMAIN}` : undefined,
     },
-    // Default cookie attributes for cross-domain OAuth
-    // Based on: https://github.com/better-auth/better-auth/discussions/5670
+    // Default cookie attributes for cross-subdomain routing
+    // CRITICAL: Use "lax" for same-domain subdomain routing (feedvalue.com <-> auth.feedvalue.com)
+    // "none" is only needed for true cross-site requests, not same-domain subdomains
     defaultCookieAttributes: {
-      sameSite: process.env.NODE_ENV === "development" ? "lax" : "none", // "none" required for cross-domain OAuth
-      secure: true, // Required with sameSite: "none"
+      sameSite: "lax", // "lax" works for same-domain subdomains and is more secure than "none"
+      secure: true, // Always use secure cookies with HTTPS
       httpOnly: true,
       partitioned: false, // Prevent browsers from blocking partitioned cookies
       domain: process.env.NODE_ENV === "development"
