@@ -102,7 +102,7 @@ app.get("/health", async (_req, res) => {
 // Subdomain routing: auth is on auth.feedvalue.com with root paths
 // IMPORTANT: Excludes authenticated endpoints from Turnstile verification
 // These endpoints require session cookies, not Turnstile tokens
-const excludedPaths = ["/health", "/token", "/session", "/jwks"];
+const excludedPaths = ["/health", "/token", "/get-session", "/jwks"];
 app.use((req, res, next) => {
   if (excludedPaths.includes(req.path)) {
     return next();
