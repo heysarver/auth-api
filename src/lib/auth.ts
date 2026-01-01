@@ -92,6 +92,34 @@ export const auth = betterAuth({
     async afterEmailVerification(user) {
       console.log(`✅ Email verified for user: ${user.email}`);
       // User will be auto-signed in and redirected to callbackURL (if provided by client)
+
+      // Optional: Call webhook after verification (configurable via WELCOME_EMAIL_WEBHOOK_URL)
+      const webhookUrl = process.env.WELCOME_EMAIL_WEBHOOK_URL;
+      if (webhookUrl) {
+        try {
+          const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              event: 'user.email_verified',
+              user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                emailVerified: user.emailVerified,
+              },
+              timestamp: new Date().toISOString(),
+            }),
+          });
+          if (!response.ok) {
+            console.error(`❌ Webhook failed: ${response.status} ${response.statusText}`);
+          } else {
+            console.log(`✅ Webhook called: ${webhookUrl}`);
+          }
+        } catch (error) {
+          console.error(`❌ Webhook error:`, error);
+        }
+      }
     },
   },
 
@@ -152,7 +180,9 @@ export const auth = betterAuth({
     // Default cookie attributes for cross-subdomain routing
     defaultCookieAttributes: {
       sameSite: process.env.NODE_ENV === "development" ? "lax" : "none", // "none" required for cross-domain OAuth
-      secure: true, // Required with sameSite: "none"
+      // CRITICAL: secure must be false in development (HTTP) for cookies to work
+      // In staging/production (HTTPS), secure must be true
+      secure: process.env.NODE_ENV !== "development",
       httpOnly: true,
       partitioned: false, // Prevent browsers from blocking partitioned cookies
       domain: process.env.NODE_ENV === "development"

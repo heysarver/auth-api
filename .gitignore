@@ -41,3 +41,5 @@ coverage/
 # Docker compose overrides
 docker-compose.override*.yaml
 docker-compose.override*.yml
+
+.ruff_cache/
