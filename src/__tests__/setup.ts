@@ -5,6 +5,9 @@
 
 import { vi, afterAll } from "vitest";
 
+// Increase max listeners to avoid warnings during parallel test runs
+process.setMaxListeners(20);
+
 // CRITICAL: Set NODE_ENV=test BEFORE importing instrumentation
 // This prevents OpenTelemetry from initializing during tests
 process.env.NODE_ENV = "test";
