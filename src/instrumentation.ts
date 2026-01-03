@@ -30,7 +30,7 @@ if (process.env.NODE_ENV === "test") {
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || "auth-api",
     [ATTR_SERVICE_VERSION]: process.env.npm_package_version || "1.0.0",
-    "deployment.environment": process.env.ENVIRONMENT || process.env.NODE_ENV || "development",
+    environment: process.env.ENVIRONMENT || process.env.NODE_ENV || "development",
   });
 
   // Configure OTLP exporters
