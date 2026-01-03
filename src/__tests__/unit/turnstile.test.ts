@@ -5,11 +5,32 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Mock redis module
+const mockRedisGet = vi.fn();
+const mockRedisDel = vi.fn();
+const mockRedisSetex = vi.fn();
+
+vi.mock("../../lib/redis.js", () => ({
+  redis: {
+    get: mockRedisGet,
+    del: mockRedisDel,
+    setex: mockRedisSetex,
+  },
+}));
+
 describe("lib/turnstile.ts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset fetch mock
     (global.fetch as any).mockReset();
+    // Reset redis mocks
+    mockRedisGet.mockReset();
+    mockRedisDel.mockReset();
+    mockRedisSetex.mockReset();
+    // Default: cache miss
+    mockRedisGet.mockResolvedValue(null);
+    mockRedisDel.mockResolvedValue(1);
+    mockRedisSetex.mockResolvedValue("OK");
     // Reset environment variables
     delete process.env.TURNSTILE_ENABLED;
     delete process.env.TURNSTILE_SECRET_KEY;
@@ -245,6 +266,167 @@ describe("lib/turnstile.ts", () => {
       const result = await verifyTurnstileToken("test-token");
 
       expect(result).toBe(false);
+    });
+
+    it("should return cached result and delete cache entry on cache hit", async () => {
+      process.env.TURNSTILE_ENABLED = "true";
+      process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+
+      // Simulate cache hit with "true" value
+      mockRedisGet.mockResolvedValue("true");
+
+      vi.resetModules();
+      const { verifyTurnstileToken } = await import("../../lib/turnstile.js");
+
+      const result = await verifyTurnstileToken("cached-token", "192.168.1.1");
+
+      expect(result).toBe(true);
+      // Verify cache was checked
+      expect(mockRedisGet).toHaveBeenCalledWith(
+        expect.stringMatching(/^turnstile:[a-f0-9]+:192\.168\.1\.1$/)
+      );
+      // Verify cache entry was deleted (single-use)
+      expect(mockRedisDel).toHaveBeenCalledWith(
+        expect.stringMatching(/^turnstile:[a-f0-9]+:192\.168\.1\.1$/)
+      );
+      // Verify Cloudflare API was NOT called
+      expect(global.fetch).not.toHaveBeenCalled();
+      // Verify log message
+      expect(console.log).toHaveBeenCalledWith("Turnstile verification cache hit");
+    });
+
+    it("should call Cloudflare API on cache miss", async () => {
+      process.env.TURNSTILE_ENABLED = "true";
+      process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+
+      // Simulate cache miss
+      mockRedisGet.mockResolvedValue(null);
+
+      vi.resetModules();
+      const { verifyTurnstileToken } = await import("../../lib/turnstile.js");
+
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+
+      const result = await verifyTurnstileToken("new-token", "192.168.1.1");
+
+      expect(result).toBe(true);
+      // Verify cache was checked
+      expect(mockRedisGet).toHaveBeenCalled();
+      // Verify Cloudflare API WAS called
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+        expect.any(Object)
+      );
+      // Verify result was cached
+      expect(mockRedisSetex).toHaveBeenCalledWith(
+        expect.stringMatching(/^turnstile:[a-f0-9]+:192\.168\.1\.1$/),
+        600, // 10 minutes TTL
+        "true"
+      );
+    });
+
+    it("should NOT cache failed verifications", async () => {
+      process.env.TURNSTILE_ENABLED = "true";
+      process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+
+      // Simulate cache miss
+      mockRedisGet.mockResolvedValue(null);
+
+      vi.resetModules();
+      const { verifyTurnstileToken } = await import("../../lib/turnstile.js");
+
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: false,
+          "error-codes": ["invalid-input-response"],
+        }),
+      });
+
+      const result = await verifyTurnstileToken("invalid-token", "192.168.1.1");
+
+      expect(result).toBe(false);
+      // Verify result was NOT cached
+      expect(mockRedisSetex).not.toHaveBeenCalled();
+    });
+
+    it("should use 'unknown' as client IP when remoteip is not provided for cache key", async () => {
+      process.env.TURNSTILE_ENABLED = "true";
+      process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+
+      // Simulate cache miss
+      mockRedisGet.mockResolvedValue(null);
+
+      vi.resetModules();
+      const { verifyTurnstileToken } = await import("../../lib/turnstile.js");
+
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+
+      await verifyTurnstileToken("new-token"); // No remoteip
+
+      // Verify cache key uses "unknown" as client IP
+      expect(mockRedisGet).toHaveBeenCalledWith(
+        expect.stringMatching(/^turnstile:[a-f0-9]+:unknown$/)
+      );
+    });
+
+    it("should continue with API verification if cache read fails", async () => {
+      process.env.TURNSTILE_ENABLED = "true";
+      process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+
+      // Simulate cache error
+      mockRedisGet.mockRejectedValue(new Error("Redis connection error"));
+
+      vi.resetModules();
+      const { verifyTurnstileToken } = await import("../../lib/turnstile.js");
+
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+
+      const result = await verifyTurnstileToken("test-token", "192.168.1.1");
+
+      expect(result).toBe(true);
+      // Verify Cloudflare API was called despite cache error
+      expect(global.fetch).toHaveBeenCalled();
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("Turnstile cache error"),
+        expect.any(Error)
+      );
+    });
+
+    it("should continue successfully if cache write fails after successful verification", async () => {
+      process.env.TURNSTILE_ENABLED = "true";
+      process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+
+      // Simulate cache miss on read
+      mockRedisGet.mockResolvedValue(null);
+      // Simulate cache write failure
+      mockRedisSetex.mockRejectedValue(new Error("Redis write error"));
+
+      vi.resetModules();
+      const { verifyTurnstileToken } = await import("../../lib/turnstile.js");
+
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+
+      const result = await verifyTurnstileToken("test-token", "192.168.1.1");
+
+      // Verification should still succeed even if caching fails
+      expect(result).toBe(true);
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to cache Turnstile verification"),
+        expect.any(Error)
+      );
     });
   });
 });

@@ -3,11 +3,27 @@
  * https://developers.cloudflare.com/turnstile/get-started/server-side-validation/
  */
 
+import { createHash } from "crypto";
+import { redis } from "./redis.js";
+
+// Cache TTL for successful Turnstile verifications (10 minutes)
+const TURNSTILE_CACHE_TTL = 600; // 10 minutes
+
 interface TurnstileResponse {
   success: boolean;
   "error-codes"?: string[];
   challenge_ts?: string;
   hostname?: string;
+}
+
+/**
+ * Generate a cache key for a Turnstile token
+ * Uses SHA256 hash of first 32 characters of token + client IP
+ */
+function generateCacheKey(token: string, clientIp: string): string {
+  const tokenPrefix = token.substring(0, 32);
+  const hash = createHash("sha256").update(tokenPrefix).digest("hex");
+  return `turnstile:${hash}:${clientIp}`;
 }
 
 /**
@@ -46,6 +62,23 @@ export async function verifyTurnstileToken(
     return true;
   }
 
+  // Check cache for previously verified token (single-use)
+  const clientIp = remoteip || "unknown";
+  const cacheKey = generateCacheKey(token, clientIp);
+
+  try {
+    const cachedResult = await redis.get(cacheKey);
+    if (cachedResult !== null) {
+      // Cache hit - delete the entry (single-use tokens)
+      await redis.del(cacheKey);
+      console.log("Turnstile verification cache hit");
+      return cachedResult === "true";
+    }
+  } catch (error) {
+    // Cache error - continue with API verification
+    console.error("⚠️ Turnstile cache error:", error);
+  }
+
   try {
     // Verify with Cloudflare Turnstile API
     const formData = new URLSearchParams();
@@ -80,7 +113,16 @@ export async function verifyTurnstileToken(
         "❌ Turnstile verification failed:",
         result["error-codes"] || "Unknown error"
       );
+      // Do NOT cache failed verifications
       return false;
+    }
+
+    // Cache successful verification
+    try {
+      await redis.setex(cacheKey, TURNSTILE_CACHE_TTL, "true");
+    } catch (error) {
+      // Cache error - log but don't fail the verification
+      console.error("⚠️ Failed to cache Turnstile verification:", error);
     }
 
     console.log("✅ Turnstile verification successful");
