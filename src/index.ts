@@ -11,9 +11,14 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { RedisStore } from "rate-limit-redis";
 import { toNodeHandler } from "better-auth/node";
 import { auth, pool } from "./lib/auth.js";
+import { redis, registerCleanupHandlers } from "./lib/redis.js";
 import { validateTurnstileToken } from "./middleware/turnstile.js";
+
+// Register Redis cleanup handlers for graceful shutdown
+registerCleanupHandlers();
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -53,6 +58,7 @@ app.use(cors({
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "traceparent", "tracestate"],
+  maxAge: 86400, // Cache preflight for 24 hours
 }));
 
 // Body parsing middleware (MUST be before routes)
@@ -68,38 +74,66 @@ const limiter = rateLimit({
   // Trust the first proxy (nginx ingress) for IP detection
   // This prevents the ERR_ERL_PERMISSIVE_TRUST_PROXY error
   validate: { trustProxy: false }, // Disable default validation since we set trust proxy globally
+  store: new RedisStore({
+    // @ts-expect-error - ioredis call() returns unknown, but RedisStore expects Promise<any>
+    sendCommand: (...args: string[]) => redis.call(...args) as Promise<any>,
+    prefix: "auth:ratelimit:",
+  }),
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use(limiter);
 
+// Health check caching to reduce database load
+let lastHealthCheck = 0;
+let cachedHealthResult: { status: string; service: string; database: boolean; timestamp: string; errors?: string[] } | null = null;
+const HEALTH_CACHE_TTL = 5000; // 5 seconds in milliseconds
+
 // Health check endpoint (MUST be before Better Auth catch-all)
 app.get("/health", async (_req, res) => {
+  const now = Date.now();
+
+  // Return cached result if still valid
+  if (cachedHealthResult && (now - lastHealthCheck) < HEALTH_CACHE_TTL) {
+    const statusCode = cachedHealthResult.status === "healthy" ? 200 : 503;
+    return res.status(statusCode).json(cachedHealthResult);
+  }
+
   const errors: string[] = [];
+  let databaseHealthy = true;
 
   // Check database connectivity
   try {
     await pool.query("SELECT 1");
   } catch (error) {
+    databaseHealthy = false;
     errors.push(`Database unhealthy: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   if (errors.length > 0) {
-    return res.status(503).json({
+    cachedHealthResult = {
       status: "unhealthy",
       service: "auth-api",
+      database: databaseHealthy,
       timestamp: new Date().toISOString(),
       errors,
-    });
+    };
+    lastHealthCheck = now;
+    return res.status(503).json(cachedHealthResult);
   }
 
-  return res.json({
+  cachedHealthResult = {
     status: "healthy",
     service: "auth-api",
+    database: databaseHealthy,
     timestamp: new Date().toISOString(),
-  });
+  };
+  lastHealthCheck = now;
+  return res.json(cachedHealthResult);
 });
 
 // Turnstile verification middleware (after /health, before Better Auth)
-// Subdomain routing: auth is on auth.feedvalue.com with root paths
+// Subdomain routing: auth is on auth.domain.com with root paths
 // IMPORTANT: Excludes authenticated endpoints from Turnstile verification
 // These endpoints require session cookies, not Turnstile tokens
 const excludedPaths = ["/health", "/token", "/get-session", "/jwks"];
