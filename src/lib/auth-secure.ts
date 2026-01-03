@@ -30,17 +30,17 @@ const ALLOWED_OAUTH_CALLBACKS = {
   development: [
     `${frontendUrl}/auth/callback/github`,
     `${frontendUrl}/auth/callback/google`,
-    `${frontendUrl}/dashboard`,
+    `${frontendUrl}/app`,
   ],
   staging: [
     `https://${stagingDomain}/auth/callback/github`,
     `https://${stagingDomain}/auth/callback/google`,
-    `https://${stagingDomain}/dashboard`,
+    `https://${stagingDomain}/app`,
   ],
   production: [
     `https://${productionDomain}/auth/callback/github`,
     `https://${productionDomain}/auth/callback/google`,
-    `https://${productionDomain}/dashboard`,
+    `https://${productionDomain}/app`,
   ],
 };
 
