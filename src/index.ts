@@ -65,31 +65,13 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting (with trust proxy configuration for Kubernetes ingress)
-// Environment-specific limits: dev/staging more lenient, production stricter
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === "production" ? 500 : 2000, // requests per window
-  message: "Too many requests from this IP, please try again later.",
-  // Trust the first proxy (nginx ingress) for IP detection
-  // This prevents the ERR_ERL_PERMISSIVE_TRUST_PROXY error
-  validate: { trustProxy: false }, // Disable default validation since we set trust proxy globally
-  store: new RedisStore({
-    // @ts-expect-error - ioredis call() returns unknown, but RedisStore expects Promise<any>
-    sendCommand: (...args: string[]) => redis.call(...args) as Promise<any>,
-    prefix: "auth:ratelimit:",
-  }),
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use(limiter);
-
 // Health check caching to reduce database load
 let lastHealthCheck = 0;
 let cachedHealthResult: { status: string; service: string; database: boolean; timestamp: string; errors?: string[] } | null = null;
 const HEALTH_CACHE_TTL = 5000; // 5 seconds in milliseconds
 
-// Health check endpoint (MUST be before Better Auth catch-all)
+// Health check endpoint - BEFORE rate limiting to prevent k8s probe failures
+// This endpoint is called frequently by Kubernetes liveness/readiness probes
 app.get("/health", async (_req, res) => {
   const now = Date.now();
 
@@ -131,6 +113,26 @@ app.get("/health", async (_req, res) => {
   lastHealthCheck = now;
   return res.json(cachedHealthResult);
 });
+
+// Rate limiting (with trust proxy configuration for Kubernetes ingress)
+// Environment-specific limits: dev/staging more lenient, production stricter
+// NOTE: Health check is ABOVE this to prevent k8s probes from being rate limited
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === "production" ? 500 : 2000, // requests per window
+  message: "Too many requests from this IP, please try again later.",
+  // Trust the first proxy (nginx ingress) for IP detection
+  // This prevents the ERR_ERL_PERMISSIVE_TRUST_PROXY error
+  validate: { trustProxy: false }, // Disable default validation since we set trust proxy globally
+  store: new RedisStore({
+    // @ts-expect-error - ioredis call() returns unknown, but RedisStore expects Promise<any>
+    sendCommand: (...args: string[]) => redis.call(...args) as Promise<any>,
+    prefix: "auth:ratelimit:",
+  }),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(limiter);
 
 // Turnstile verification middleware (after /health, before Better Auth)
 // Subdomain routing: auth is on auth.domain.com with root paths
