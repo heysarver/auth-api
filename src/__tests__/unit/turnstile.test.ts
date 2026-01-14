@@ -34,6 +34,8 @@ describe("lib/turnstile.ts", () => {
     // Reset environment variables
     delete process.env.TURNSTILE_ENABLED;
     delete process.env.TURNSTILE_SECRET_KEY;
+    delete process.env.TURNSTILE_BYPASS_TOKEN;
+    delete process.env.NODE_ENV;
   });
 
   describe("verifyTurnstileToken", () => {
@@ -87,20 +89,65 @@ describe("lib/turnstile.ts", () => {
       );
     });
 
-    it("should accept development mode bypass token", async () => {
+    it("should accept development mode bypass token when configured", async () => {
       process.env.TURNSTILE_ENABLED = "true";
       process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+      process.env.TURNSTILE_BYPASS_TOKEN = "my-dev-bypass-token";
+      process.env.NODE_ENV = "development";
 
       vi.resetModules();
       const { verifyTurnstileToken } = await import("../../lib/turnstile.js");
 
-      const result = await verifyTurnstileToken("DEVELOPMENT_MODE_BYPASS");
+      const result = await verifyTurnstileToken("my-dev-bypass-token");
 
       expect(result).toBe(true);
       expect(console.log).toHaveBeenCalledWith(
         expect.stringContaining("development mode bypass token accepted")
       );
       expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it("should reject bypass token in production", async () => {
+      process.env.TURNSTILE_ENABLED = "true";
+      process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+      process.env.TURNSTILE_BYPASS_TOKEN = "my-dev-bypass-token";
+      process.env.NODE_ENV = "production";
+
+      vi.resetModules();
+      const { verifyTurnstileToken } = await import("../../lib/turnstile.js");
+
+      // Mock the API call that will happen since bypass is rejected
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: false, "error-codes": ["invalid-input-response"] }),
+      });
+
+      const result = await verifyTurnstileToken("my-dev-bypass-token");
+
+      // Should NOT accept bypass in production - falls through to API verification
+      expect(result).toBe(false);
+      expect(global.fetch).toHaveBeenCalled();
+    });
+
+    it("should reject bypass token when TURNSTILE_BYPASS_TOKEN not configured", async () => {
+      process.env.TURNSTILE_ENABLED = "true";
+      process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+      // Note: TURNSTILE_BYPASS_TOKEN is NOT set
+      process.env.NODE_ENV = "development";
+
+      vi.resetModules();
+      const { verifyTurnstileToken } = await import("../../lib/turnstile.js");
+
+      // Mock the API call
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: false, "error-codes": ["invalid-input-response"] }),
+      });
+
+      const result = await verifyTurnstileToken("some-random-token");
+
+      // Should NOT accept arbitrary tokens without bypass configured
+      expect(result).toBe(false);
     });
 
     it("should verify token with Cloudflare API successfully", async () => {

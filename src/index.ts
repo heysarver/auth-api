@@ -25,7 +25,12 @@ const PORT = process.env.PORT || 3002;
 
 // Trust proxy when running behind ingress/load balancer
 // This allows Express to use X-Forwarded-* headers for client IP detection
-app.set("trust proxy", true);
+// Default: 1 (trust first proxy) - safe for typical k8s ingress
+// Set TRUST_PROXY=true to trust all (less secure), or a specific IP/range
+const trustProxy = process.env.TRUST_PROXY === "true" ? true :
+                   process.env.TRUST_PROXY ? process.env.TRUST_PROXY :
+                   1; // Default: trust first proxy only
+app.set("trust proxy", trustProxy);
 
 // Security middleware
 app.use(helmet({
@@ -62,8 +67,9 @@ app.use(cors({
 }));
 
 // Body parsing middleware (MUST be before routes)
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Explicit size limits prevent memory exhaustion attacks
+app.use(express.json({ limit: "16kb" }));
+app.use(express.urlencoded({ extended: true, limit: "16kb" }));
 
 // Health check caching to reduce database load
 let lastHealthCheck = 0;
@@ -155,15 +161,25 @@ app.use((req, res) => {
   res.status(404).json({
     error: "Not Found",
     message: `Cannot ${req.method} ${req.path}`,
+    code: "NOT_FOUND",
   });
 });
 
-// Error handler
+// Error handler - consistent format with 404 handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("Error:", err);
+  // Log error without exposing sensitive details in production
+  const isProduction = process.env.NODE_ENV === "production";
+  if (!isProduction) {
+    console.error("Error:", err);
+  } else {
+    console.error("Error:", err.message || "Unknown error");
+  }
+
   res.status(err.status || 500).json({
-    error: err.message || "Internal Server Error",
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+    error: err.name || "Internal Server Error",
+    message: err.message || "An unexpected error occurred",
+    code: err.code || "INTERNAL_ERROR",
+    ...(!isProduction && { stack: err.stack }),
   });
 });
 

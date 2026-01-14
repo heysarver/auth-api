@@ -56,8 +56,14 @@ export async function verifyTurnstileToken(
     return false;
   }
 
-  // Development mode bypass token
-  if (token === "DEVELOPMENT_MODE_BYPASS") {
+  // Development mode bypass - requires explicit opt-in via env var
+  // NEVER works in production, even with env var set
+  const bypassToken = process.env.TURNSTILE_BYPASS_TOKEN;
+  if (
+    process.env.NODE_ENV !== "production" &&
+    bypassToken &&
+    token === bypassToken
+  ) {
     console.log("⚠️  Turnstile development mode bypass token accepted");
     return true;
   }
