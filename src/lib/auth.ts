@@ -4,6 +4,23 @@ import { Pool } from "pg";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
 import { redis } from "./redis.js";
 
+// OAuth profile types for type-safe access
+interface GoogleProfile {
+  id: string;
+  name: string;
+  email: string;
+  picture: string;
+  verified_email: boolean;
+}
+
+interface GitHubProfile {
+  id: number;
+  name: string | null;
+  login: string;
+  email: string | null;
+  avatar_url: string;
+}
+
 // Initialize PostgreSQL connection pool from DATABASE_URL
 // Format: postgresql://user:password@host:port/database?schema=auth
 const databaseUrl = process.env.DATABASE_URL;
@@ -137,7 +154,7 @@ export const auth = betterAuth({
               Authorization: `Bearer ${token.accessToken}`,
             },
           });
-          const profile = await response.json();
+          const profile = await response.json() as GoogleProfile;
           return {
             user: {
               id: profile.id,
@@ -164,7 +181,7 @@ export const auth = betterAuth({
               Accept: "application/vnd.github+json",
             },
           });
-          const profile = await response.json();
+          const profile = await response.json() as GitHubProfile;
           // GitHub requires email verification for accounts, so we trust it
           return {
             user: {
