@@ -21,6 +21,13 @@ interface GitHubProfile {
   avatar_url: string;
 }
 
+interface GitHubEmail {
+  email: string;
+  primary: boolean;
+  verified: boolean;
+  visibility: string | null;
+}
+
 // Initialize PostgreSQL connection pool from DATABASE_URL
 // Format: postgresql://user:password@host:port/database?schema=auth
 const databaseUrl = process.env.DATABASE_URL;
@@ -173,23 +180,56 @@ export const auth = betterAuth({
       github: {
         clientId: process.env.GITHUB_CLIENT_ID,
         clientSecret: process.env.GITHUB_CLIENT_SECRET,
+        // Explicitly request user:email scope to access /user/emails endpoint
+        // Required when users have private emails set on GitHub
+        scope: ["user:email"],
         // Custom getUserInfo to set emailVerified for GitHub OAuth
+        // Handles case where /user endpoint returns null email (private email setting)
         getUserInfo: async (token) => {
-          const response = await fetch("https://api.github.com/user", {
-            headers: {
-              Authorization: `Bearer ${token.accessToken}`,
-              Accept: "application/vnd.github+json",
-            },
-          });
+          const headers = {
+            Authorization: `Bearer ${token.accessToken}`,
+            Accept: "application/vnd.github+json",
+          };
+
+          // Fetch user profile
+          const response = await fetch("https://api.github.com/user", { headers });
           const profile = await response.json() as GitHubProfile;
-          // GitHub requires email verification for accounts, so we trust it
+
+          let email = profile.email;
+          let emailVerified = true;
+
+          // If email is null (user has private email), fetch from /user/emails endpoint
+          if (!email) {
+            try {
+              const emailsResponse = await fetch("https://api.github.com/user/emails", { headers });
+              if (emailsResponse.ok) {
+                const emails = await emailsResponse.json() as GitHubEmail[];
+                // Find the primary verified email
+                const primaryEmail = emails.find(e => e.primary && e.verified);
+                if (primaryEmail) {
+                  email = primaryEmail.email;
+                  emailVerified = primaryEmail.verified;
+                } else {
+                  // Fallback: find any verified email
+                  const verifiedEmail = emails.find(e => e.verified);
+                  if (verifiedEmail) {
+                    email = verifiedEmail.email;
+                    emailVerified = verifiedEmail.verified;
+                  }
+                }
+              }
+            } catch (error) {
+              console.error("Failed to fetch GitHub user emails:", error);
+            }
+          }
+
           return {
             user: {
               id: String(profile.id),
               name: profile.name || profile.login,
-              email: profile.email,
+              email: email,
               image: profile.avatar_url,
-              emailVerified: true,
+              emailVerified: emailVerified,
             },
             data: profile,
           };
