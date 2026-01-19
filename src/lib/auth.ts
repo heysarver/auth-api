@@ -130,12 +130,53 @@ export const auth = betterAuth({
       google: {
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        // Custom getUserInfo to properly map Google's email_verified claim
+        getUserInfo: async (token) => {
+          const response = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+            headers: {
+              Authorization: `Bearer ${token.accessToken}`,
+            },
+          });
+          const profile = await response.json();
+          return {
+            user: {
+              id: profile.id,
+              name: profile.name,
+              email: profile.email,
+              image: profile.picture,
+              // Google returns verified_email: true for verified emails
+              emailVerified: profile.verified_email === true,
+            },
+            data: profile,
+          };
+        },
       },
     }),
     ...(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET && {
       github: {
         clientId: process.env.GITHUB_CLIENT_ID,
         clientSecret: process.env.GITHUB_CLIENT_SECRET,
+        // Custom getUserInfo to set emailVerified for GitHub OAuth
+        getUserInfo: async (token) => {
+          const response = await fetch("https://api.github.com/user", {
+            headers: {
+              Authorization: `Bearer ${token.accessToken}`,
+              Accept: "application/vnd.github+json",
+            },
+          });
+          const profile = await response.json();
+          // GitHub requires email verification for accounts, so we trust it
+          return {
+            user: {
+              id: String(profile.id),
+              name: profile.name || profile.login,
+              email: profile.email,
+              image: profile.avatar_url,
+              emailVerified: true,
+            },
+            data: profile,
+          };
+        },
       },
     }),
   },
