@@ -46,11 +46,24 @@ export const pool = new Pool({
   options: "-c search_path=auth",
 });
 
+// Add error handling to catch silent database errors
+pool.on("error", (err) => {
+  console.error("❌ PostgreSQL Pool Error:", err.message);
+});
+
+pool.on("connect", (client) => {
+  console.log("📦 PostgreSQL client connected");
+  client.on("error", (err) => {
+    console.error("❌ PostgreSQL Client Error:", err.message);
+  });
+});
+
 export const auth = betterAuth({
   database: pool,
 
-  // Use separate auth schema as per CODE_GUIDE.md
-  databaseSchema: "auth",
+  // NOTE: Schema is set via search_path in pool options (line 46)
+  // Do NOT use databaseSchema here - it doesn't work with Kysely+PostgreSQL
+  // See: https://github.com/better-auth/better-auth/blob/canary/docs/content/docs/adapters/postgresql.mdx
 
   // Base URL configuration (subdomain routing)
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3002",
@@ -192,36 +205,63 @@ export const auth = betterAuth({
           };
 
           // Fetch user profile
+          console.log("🔍 GitHub OAuth: Fetching user profile...");
           const response = await fetch("https://api.github.com/user", { headers });
           const profile = await response.json() as GitHubProfile;
+          console.log("🔍 GitHub OAuth: Profile fetched, email:", profile.email ? "present" : "null");
 
           let email = profile.email;
           let emailVerified = true;
 
           // If email is null (user has private email), fetch from /user/emails endpoint
           if (!email) {
+            console.log("🔍 GitHub OAuth: Email is null, fetching from /user/emails...");
             try {
               const emailsResponse = await fetch("https://api.github.com/user/emails", { headers });
+              console.log("🔍 GitHub OAuth: /user/emails response status:", emailsResponse.status);
+
               if (emailsResponse.ok) {
                 const emails = await emailsResponse.json() as GitHubEmail[];
+                console.log("🔍 GitHub OAuth: Found", emails.length, "emails");
+
                 // Find the primary verified email
                 const primaryEmail = emails.find(e => e.primary && e.verified);
                 if (primaryEmail) {
                   email = primaryEmail.email;
                   emailVerified = primaryEmail.verified;
+                  console.log("🔍 GitHub OAuth: Using primary verified email");
                 } else {
                   // Fallback: find any verified email
                   const verifiedEmail = emails.find(e => e.verified);
                   if (verifiedEmail) {
                     email = verifiedEmail.email;
                     emailVerified = verifiedEmail.verified;
+                    console.log("🔍 GitHub OAuth: Using fallback verified email");
+                  } else {
+                    // Last resort: use any email
+                    const anyEmail = emails[0];
+                    if (anyEmail) {
+                      email = anyEmail.email;
+                      emailVerified = anyEmail.verified;
+                      console.log("🔍 GitHub OAuth: Using first available email (unverified)");
+                    }
                   }
                 }
+              } else {
+                console.error("🔍 GitHub OAuth: /user/emails failed:", emailsResponse.status, await emailsResponse.text());
               }
             } catch (error) {
-              console.error("Failed to fetch GitHub user emails:", error);
+              console.error("🔍 GitHub OAuth: Failed to fetch user emails:", error);
             }
           }
+
+          // If we still don't have an email, throw an error
+          if (!email) {
+            console.error("🔍 GitHub OAuth: FATAL - Could not obtain email from GitHub");
+            throw new Error("Could not obtain email from GitHub. Please ensure your GitHub account has a verified email address.");
+          }
+
+          console.log("✅ GitHub OAuth: Successfully obtained email, emailVerified:", emailVerified);
 
           return {
             user: {
