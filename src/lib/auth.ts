@@ -348,6 +348,50 @@ export const auth = betterAuth({
     process.env.FRONTEND_URL || "http://localhost:5173",
     process.env.API_URL || "http://localhost:3001",
   ],
+
+  // Database hooks for lifecycle events
+  // Used to send welcome email for OAuth users who are already verified
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          // OAuth users are created with emailVerified: true
+          // For these users, send the welcome email immediately
+          // (Email/password users will get welcome email via afterEmailVerification hook)
+          if (user.emailVerified === true) {
+            console.log(`✅ OAuth signup detected for user: ${user.email}`);
+
+            const webhookUrl = process.env.WELCOME_EMAIL_WEBHOOK_URL;
+            if (webhookUrl) {
+              try {
+                const response = await fetch(webhookUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    event: 'user.social_signup',
+                    user: {
+                      id: user.id,
+                      email: user.email,
+                      name: user.name,
+                      emailVerified: user.emailVerified,
+                    },
+                    timestamp: new Date().toISOString(),
+                  }),
+                });
+                if (!response.ok) {
+                  console.error(`❌ OAuth welcome webhook failed: ${response.status} ${response.statusText}`);
+                } else {
+                  console.log(`✅ OAuth welcome webhook called: ${webhookUrl}`);
+                }
+              } catch (error) {
+                console.error(`❌ OAuth welcome webhook error:`, error);
+              }
+            }
+          }
+        },
+      },
+    },
+  },
 });
 
 // Export types for TypeScript
