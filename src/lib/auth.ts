@@ -136,7 +136,12 @@ export const auth = betterAuth({
         try {
           const response = await fetch(webhookUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(process.env.INTERNAL_AUTH_TOKEN && {
+                'X-Internal-Auth-Token': process.env.INTERNAL_AUTH_TOKEN,
+              }),
+            },
             body: JSON.stringify({
               event: 'user.email_verified',
               user: {
@@ -366,7 +371,12 @@ export const auth = betterAuth({
               try {
                 const response = await fetch(webhookUrl, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(process.env.INTERNAL_AUTH_TOKEN && {
+                      'X-Internal-Auth-Token': process.env.INTERNAL_AUTH_TOKEN,
+                    }),
+                  },
                   body: JSON.stringify({
                     event: 'user.social_signup',
                     user: {
