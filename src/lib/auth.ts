@@ -328,9 +328,9 @@ export const auth = betterAuth({
       secure: process.env.NODE_ENV !== "development",
       httpOnly: true,
       partitioned: false, // Prevent browsers from blocking partitioned cookies
-      domain: process.env.NODE_ENV === "development"
-        ? "localhost"
-        : undefined, // Let crossSubDomainCookies handle the domain
+      domain: process.env.COOKIE_DOMAIN
+        ? undefined  // crossSubDomainCookies handles this
+        : process.env.NODE_ENV === "development" ? "localhost" : undefined,
       path: "/",
     },
   },
@@ -355,37 +355,32 @@ export const auth = betterAuth({
     user: {
       create: {
         after: async (user) => {
-          // OAuth users are created with emailVerified: true
-          // For these users, send the welcome email immediately
-          // (Email/password users will get welcome email via afterEmailVerification hook)
-          if (user.emailVerified === true) {
-            console.log(`✅ OAuth signup detected for user: ${user.email}`);
-
-            const webhookUrl = process.env.WELCOME_EMAIL_WEBHOOK_URL;
-            if (webhookUrl) {
-              try {
-                const response = await fetch(webhookUrl, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    event: 'user.social_signup',
-                    user: {
-                      id: user.id,
-                      email: user.email,
-                      name: user.name,
-                      emailVerified: user.emailVerified,
-                    },
-                    timestamp: new Date().toISOString(),
-                  }),
-                });
-                if (!response.ok) {
-                  console.error(`❌ OAuth welcome webhook failed: ${response.status} ${response.statusText}`);
-                } else {
-                  console.log(`✅ OAuth welcome webhook called: ${webhookUrl}`);
-                }
-              } catch (error) {
-                console.error(`❌ OAuth welcome webhook error:`, error);
+          const webhookUrl = process.env.WELCOME_EMAIL_WEBHOOK_URL;
+          if (webhookUrl) {
+            try {
+              const event = user.emailVerified ? 'user.social_signup' : 'user.created';
+              console.log(`🔔 Firing webhook for new user: ${user.email} (${event})`);
+              const response = await fetch(webhookUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  event,
+                  user: {
+                    id: user.id,
+                    email: user.email,
+                    name: user.name,
+                    emailVerified: user.emailVerified,
+                  },
+                  timestamp: new Date().toISOString(),
+                }),
+              });
+              if (!response.ok) {
+                console.error(`❌ Webhook failed: ${response.status} ${response.statusText}`);
+              } else {
+                console.log(`✅ Webhook called: ${webhookUrl}`);
               }
+            } catch (error) {
+              console.error('❌ Webhook error:', error);
             }
           }
         },
