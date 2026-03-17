@@ -1,6 +1,13 @@
 #!/bin/sh
 set -e
 
+echo "Waiting for PostgreSQL to be ready..."
+until PGPASSWORD="${POSTGRES_PASSWORD}" pg_isready -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT:-5432}" -U "${POSTGRES_USER}"; do
+  echo "PostgreSQL not ready, retrying in 2s..."
+  sleep 2
+done
+echo "PostgreSQL is ready"
+
 echo "Creating PostgreSQL schemas..."
 
 # Create schemas if they don't exist
