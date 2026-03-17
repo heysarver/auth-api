@@ -344,10 +344,13 @@ export const auth = betterAuth({
   },
 
   // Trusted origins for CORS
-  trustedOrigins: [
-    process.env.FRONTEND_URL || "http://localhost:5173",
-    process.env.API_URL || "http://localhost:3001",
-  ],
+  // CORS_ORIGINS takes precedence (comma-separated), falls back to FRONTEND_URL + API_URL
+  trustedOrigins: process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(",").map((s: string) => s.trim())
+    : [
+        process.env.FRONTEND_URL || "http://localhost:5173",
+        process.env.API_URL || "http://localhost:3001",
+      ],
 
   // Database hooks for lifecycle events
   // Used to send welcome email for OAuth users who are already verified

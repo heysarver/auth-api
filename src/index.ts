@@ -55,11 +55,15 @@ app.use(helmet({
 }));
 
 // CORS configuration
+// CORS_ORIGINS takes precedence (comma-separated), falls back to FRONTEND_URL + API_URL
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((s) => s.trim())
+  : [
+      process.env.FRONTEND_URL || "http://localhost:5173",
+      process.env.API_URL || "http://localhost:3001",
+    ];
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || "http://localhost:5173",
-    process.env.API_URL || "http://localhost:3001",
-  ],
+  origin: corsOrigins,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "traceparent", "tracestate"],
