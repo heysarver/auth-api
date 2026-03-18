@@ -79,6 +79,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      liquibase-auth:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
       interval: 30s
@@ -94,11 +96,11 @@ services:
         max-file: "${LOG_MAX_FILES:-3}"
 
   # Liquibase migration service for auth schema
+  # Runs automatically on every `docker compose up` (no profile gate).
+  # auth-api waits for this service to complete before starting.
   liquibase-auth:
     image: liquibase/liquibase:4.24
     container_name: ${COMPOSE_PROJECT_NAME:-auth}-liquibase
-    profiles:
-      - migrate
     env_file:
       - .env
     environment:
@@ -112,12 +114,12 @@ services:
       LIQUIBASE_LOG_LEVEL: INFO
     volumes:
       - ./migrations:/liquibase/changelog:ro
+    entrypoint: ["/bin/sh", "/liquibase/changelog/docker-entrypoint.sh"]
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - ${NETWORK_NAME:-auth-network}
-    command: ["update"]
 
 volumes:
   auth_api_cache:

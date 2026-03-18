@@ -6,8 +6,8 @@
 #   2. Copy this file: cp docker-compose.override.yaml.example docker-compose.override.yaml
 #   3. Ensure PostgreSQL is accessible at postgres:5432 or update the network/depends_on
 #   4. Update .env with your database credentials
-#   5. Run services: docker compose up -d
-#   6. Run migrations: docker compose --profile migrate up liquibase-auth
+#   5. Run: docker compose up -d
+#      Migrations run automatically via liquibase-auth before auth-api starts.
 #
 # For integrated use with a parent project, set NETWORK_NAME in .env to match your project's network
 
