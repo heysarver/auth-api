@@ -1,4 +1,5 @@
 import sgMail from '@sendgrid/mail';
+import nodemailer from 'nodemailer';
 
 // Cache email configuration at module load (computed once at startup)
 export const EMAIL_CONFIG = {
@@ -12,11 +13,29 @@ export const EMAIL_CONFIG = {
   sendgridFromName: process.env.SENDGRID_FROM_NAME,
   sendgridVerificationTemplateId: process.env.SENDGRID_VERIFICATION_TEMPLATE_ID,
   sendgridResetTemplateId: process.env.SENDGRID_RESET_TEMPLATE_ID,
+  // SMTP fallback for dev (Mailpit)
+  smtpHost: process.env.SMTP_HOST,
+  smtpPort: parseInt(process.env.SMTP_PORT || "1025", 10),
+  smtpFrom: process.env.SMTP_FROM || `noreply@${process.env.PRODUCTION_DOMAIN || "example.com"}`,
 } as const;
 
 // Initialize SendGrid with cached API key
 if (EMAIL_CONFIG.sendgridApiKey) {
   sgMail.setApiKey(EMAIL_CONFIG.sendgridApiKey);
+}
+
+// SMTP transporter (Mailpit in dev, or any SMTP server)
+const smtpTransport = EMAIL_CONFIG.smtpHost
+  ? nodemailer.createTransport({
+      host: EMAIL_CONFIG.smtpHost,
+      port: EMAIL_CONFIG.smtpPort,
+      secure: false,
+      ignoreTLS: true,
+    })
+  : null;
+
+if (smtpTransport) {
+  console.log(`📬 SMTP transport configured: ${EMAIL_CONFIG.smtpHost}:${EMAIL_CONFIG.smtpPort}`);
 }
 
 interface EmailOptions {
@@ -169,13 +188,30 @@ Need help? Contact us at ${supportEmail}
 export async function sendEmail(options: EmailOptions): Promise<void> {
   const { sendgridApiKey, appName, productionDomain, sendgridFromEmail, sendgridFromName } = EMAIL_CONFIG;
 
-  // If SendGrid is not configured, log and return (for development)
+  // SMTP path (Mailpit in dev, or any SMTP server configured via SMTP_HOST)
+  if (smtpTransport) {
+    try {
+      await smtpTransport.sendMail({
+        from: EMAIL_CONFIG.smtpFrom,
+        to: options.to,
+        subject: options.subject,
+        text: options.text,
+        html: options.html,
+      });
+      console.log(`✅ Email sent via SMTP to ${options.to}`);
+    } catch (error) {
+      console.error('❌ SMTP send error:', error);
+      throw error;
+    }
+    return;
+  }
+
+  // If SendGrid is not configured either, log and return (for development)
   if (!sendgridApiKey) {
-    console.log('📧 Email would be sent (SendGrid not configured):');
+    console.log('📧 Email would be sent (no transport configured):');
     console.log('To:', options.to);
     console.log('Subject:', options.subject);
-    if (options.text) console.log('Text:', options.text);
-    if (options.html) console.log('HTML:', options.html);
+    if (options.text) console.log('Text:', options.text.slice(0, 200));
     return;
   }
 

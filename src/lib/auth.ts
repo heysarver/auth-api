@@ -330,7 +330,7 @@ export const auth = betterAuth({
       partitioned: false, // Prevent browsers from blocking partitioned cookies
       domain: process.env.COOKIE_DOMAIN
         ? undefined  // crossSubDomainCookies handles this
-        : process.env.NODE_ENV === "development" ? "localhost" : undefined,
+        : undefined, // Let browser scope cookie to exact request domain
       path: "/",
     },
   },

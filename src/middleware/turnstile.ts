@@ -22,8 +22,8 @@ export async function validateTurnstileToken(
     return next();
   }
 
-  // Extract Turnstile token from request body
-  const turnstileToken = req.body["cf-turnstile-response"];
+  // Extract Turnstile token from request body (req.body may be undefined if content-type unexpected)
+  const turnstileToken = req.body?.["cf-turnstile-response"];
 
   if (!turnstileToken) {
     console.warn("⚠️  No Turnstile token provided for", req.path);
