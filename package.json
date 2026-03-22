@@ -46,7 +46,7 @@
     "@types/ioredis": "^5.0.0",
     "@types/node": "^24.10.4",
     "@types/pg": "^8.15.5",
-    "@types/supertest": "^6.0.3",
+    "@types/supertest": "^7.2.0",
     "@vitest/coverage-v8": "^4.0.16",
     "@vitest/ui": "^4.0.16",
     "eslint": "^9.39.1",
