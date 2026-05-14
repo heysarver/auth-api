@@ -7,6 +7,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockSendGridSend } from "../setup.js";
 
+const mockSmtpSendMail = vi.hoisted(() => vi.fn());
+const mockCreateTransport = vi.hoisted(() =>
+  vi.fn(() => ({
+    sendMail: mockSmtpSendMail,
+  }))
+);
+
+vi.mock("nodemailer", () => ({
+  default: {
+    createTransport: mockCreateTransport,
+  },
+}));
+
 describe("lib/email.ts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -14,6 +27,11 @@ describe("lib/email.ts", () => {
     delete process.env.SENDGRID_API_KEY;
     delete process.env.SENDGRID_VERIFICATION_TEMPLATE_ID;
     delete process.env.SENDGRID_RESET_TEMPLATE_ID;
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_PORT;
+    delete process.env.SMTP_FROM;
+    mockSmtpSendMail.mockReset();
+    mockCreateTransport.mockClear();
   });
 
   describe("EMAIL_CONFIG caching", () => {
@@ -327,6 +345,62 @@ describe("lib/email.ts", () => {
         expect.stringContaining("Error sending email"),
         expect.any(Error)
       );
+    });
+
+    it("should send via SMTP when SMTP_HOST is configured", async () => {
+      process.env.SMTP_HOST = "mailpit";
+      process.env.SMTP_PORT = "1026";
+      process.env.SMTP_FROM = "dev@example.com";
+
+      vi.resetModules();
+      const { sendEmail, EMAIL_CONFIG } = await import("../../lib/email.js");
+      mockSmtpSendMail.mockResolvedValue({ accepted: ["recipient@example.com"] });
+
+      await sendEmail({
+        to: "recipient@example.com",
+        subject: "SMTP Subject",
+        text: "SMTP text",
+        html: "<p>SMTP HTML</p>",
+      });
+
+      expect(EMAIL_CONFIG.smtpPort).toBe(1026);
+      expect(mockCreateTransport).toHaveBeenCalledWith({
+        host: "mailpit",
+        port: 1026,
+        secure: false,
+        ignoreTLS: true,
+      });
+      expect(console.log).toHaveBeenCalledWith(
+        "📬 SMTP transport configured: mailpit:1026"
+      );
+      expect(mockSmtpSendMail).toHaveBeenCalledWith({
+        from: "dev@example.com",
+        to: "recipient@example.com",
+        subject: "SMTP Subject",
+        text: "SMTP text",
+        html: "<p>SMTP HTML</p>",
+      });
+      expect(mockSendGridSend).not.toHaveBeenCalled();
+    });
+
+    it("should rethrow SMTP send failures", async () => {
+      process.env.SMTP_HOST = "mailpit";
+
+      vi.resetModules();
+      const { sendEmail } = await import("../../lib/email.js");
+      const smtpError = new Error("SMTP down");
+      mockSmtpSendMail.mockRejectedValue(smtpError);
+
+      await expect(
+        sendEmail({
+          to: "recipient@example.com",
+          subject: "SMTP Subject",
+          text: "SMTP text",
+        })
+      ).rejects.toThrow("SMTP down");
+
+      expect(console.error).toHaveBeenCalledWith("❌ SMTP send error:", smtpError);
+      expect(mockSendGridSend).not.toHaveBeenCalled();
     });
   });
 
