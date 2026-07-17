@@ -172,7 +172,7 @@ app.post(
   introspectionLimiter,
   createTokenIntrospectionHandler({
     machineToken: process.env.TOKEN_INTROSPECTION_BEARER_TOKEN,
-    clientId: process.env.TOKEN_INTROSPECTION_CLIENT_ID || "nebulaios",
+    clientId: process.env.TOKEN_INTROSPECTION_CLIENT_ID || "token-introspection-client",
     verifyToken: createBetterAuthJwtVerifier(auth.api),
     isSessionActive: createPostgresSessionActivityChecker(pool),
   }),

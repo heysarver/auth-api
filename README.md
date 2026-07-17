@@ -165,7 +165,7 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 | `BETTER_AUTH_SECRET` | Secret for JWT signing (min 32 chars) | - |
 | `BETTER_AUTH_URL` | Base URL for auth (subdomain: auth.domain.com) | http://localhost:3002 |
 | `JWT_AUDIENCE` | Exact JWT audience required by relying services | BETTER_AUTH_URL |
-| `TOKEN_INTROSPECTION_CLIENT_ID` | Non-secret audit label for the machine client | nebulaios |
+| `TOKEN_INTROSPECTION_CLIENT_ID` | Non-secret audit label for the machine client | token-introspection-client |
 | `TOKEN_INTROSPECTION_BEARER_TOKEN` | Secret-manager-provisioned credential for `/token/introspect` | - |
 | `TOKEN_INTROSPECTION_RATE_LIMIT_MAX` | Per-minute introspection request limit | 120 |
 | `GITHUB_CLIENT_ID` | GitHub OAuth client ID | - |
@@ -175,7 +175,7 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 | `SESSION_EXPIRES_IN` | Session duration in seconds | 86400 |
 | `SESSION_UPDATE_AGE` | Session refresh interval | 3600 |
 
-### Token introspection for NebulaiOS
+### Token introspection
 
 The introspection URL is the configured issuer with the root path appended:
 
@@ -186,11 +186,10 @@ POST <BETTER_AUTH_URL without a trailing slash>/token/introspect
 Do not use `/api/auth/token/introspect` or append the route to the JWKS URL. The
 machine client sends its dedicated, externally provisioned credential as
 `Authorization: Bearer <TOKEN_INTROSPECTION_BEARER_TOKEN>` and JSON body
-`{"token":"<original bearer JWT>"}`. Configure NebulaiOS's expected audience
-to exactly match `JWT_AUDIENCE`; the intended control-plane value is
-`nebulaios-control-plane`. Generate a random machine credential of at least 32
-characters and provision the same value to both services through their secret
-managers.
+`{"token":"<original bearer JWT>"}`. Configure each relying service's expected
+audience to exactly match `JWT_AUDIENCE`. Generate a random machine credential
+of at least 32 characters and provision the same value to auth-api and the
+authorized machine client through their secret managers.
 
 Bearer JWTs use the PostgreSQL Better Auth session ID as `jti`. PostgreSQL is
 the durable activity authority while Redis remains secondary session storage.

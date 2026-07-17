@@ -8,7 +8,7 @@ import {
 const claims: IntrospectionClaims = {
   sub: "user-id",
   iss: "https://auth.example.test",
-  aud: "nebulaios-control-plane",
+  aud: "test-control-plane",
   exp: 1_735_689_600,
   jti: "session-id",
 };

@@ -20,7 +20,7 @@ const forgedKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const activeClaims: IntrospectionClaims & Record<string, unknown> = {
   sub: "human-subject-id",
   iss: "https://auth.example.test",
-  aud: "nebulaios-control-plane",
+  aud: "test-control-plane",
   exp: NOW + 300,
   jti: "session-revision-id",
   email: "must-not-be-returned@example.test",
@@ -51,7 +51,7 @@ function createHarness(options: HarnessOptions = {}) {
     rateLimit({ windowMs: 60_000, limit: 1_000, legacyHeaders: false }),
     createTokenIntrospectionHandler({
       machineToken: "machineToken" in options ? options.machineToken : MACHINE_TOKEN,
-      clientId: "nebulaios",
+      clientId: "test-introspection-client",
       verifyToken,
       isSessionActive,
       now: () => NOW,
