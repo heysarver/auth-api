@@ -21,3 +21,23 @@ databaseChangeLog:
             relativeToChangelogFile: true
             splitStatements: true
             stripComments: true
+
+  - changeSet:
+      id: auth-003
+      author: system
+      comment: Add durable administrative user disable state and revoke sessions on disable
+      changes:
+        - sqlFile:
+            path: changes/auth/003-add-user-disable-state.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: false
+            sql: |
+              DROP TRIGGER IF EXISTS reject_session_for_disabled_user ON auth.sessions;
+              DROP FUNCTION IF EXISTS auth.reject_session_for_disabled_user();
+              DROP TRIGGER IF EXISTS revoke_sessions_when_user_disabled ON auth.users;
+              DROP FUNCTION IF EXISTS auth.revoke_sessions_when_user_disabled();
+              ALTER TABLE auth.users DROP COLUMN IF EXISTS disabled;
