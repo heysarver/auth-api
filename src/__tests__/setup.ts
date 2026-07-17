@@ -40,11 +40,14 @@ export const mockPoolQuery = vi.fn();
 export const mockPoolEnd = vi.fn();
 
 vi.mock("pg", () => ({
-  Pool: vi.fn(() => ({
-    query: mockPoolQuery,
-    end: mockPoolEnd,
-    connect: vi.fn(),
-  })),
+  Pool: vi.fn(function () {
+    return {
+      query: mockPoolQuery,
+      end: mockPoolEnd,
+      connect: vi.fn(),
+      on: vi.fn(),
+    };
+  }),
 }));
 
 // Mock Redis client
@@ -108,7 +111,7 @@ vi.mock("better-auth/node", () => ({
 }));
 
 vi.mock("better-auth/plugins", () => ({
-  jwt: vi.fn(() => ({})),
+  jwt: vi.fn((options) => ({ id: "jwt", options })),
 }));
 
 // Mock OpenTelemetry SDK and instrumentations

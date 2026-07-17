@@ -3,6 +3,7 @@ import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
 import { redis } from "./redis.js";
+import { createDisabledUserSessionGuard } from "./session-security.js";
 
 // OAuth profile types for type-safe access
 interface GoogleProfile {
@@ -103,8 +104,10 @@ export const auth = betterAuth({
       },
       jwt: {
         issuer: process.env.BETTER_AUTH_URL || "http://localhost:3002",
-        audience: process.env.BETTER_AUTH_URL || "http://localhost:3002",
+        audience: process.env.JWT_AUDIENCE || process.env.BETTER_AUTH_URL || "http://localhost:3002",
         expirationTime: "24h",
+        // Bind every bearer JWT to its durable Better Auth session revision.
+        definePayload: ({ session }) => ({ jti: session.id }),
       },
     }),
   ],
@@ -113,6 +116,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
+    revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url, token }) => {
       await sendPasswordResetEmail(user.email, url, token);
     },
@@ -281,6 +285,8 @@ export const auth = betterAuth({
   // Session configuration with plural table name
   session: {
     modelName: "sessions",
+    // PostgreSQL is the durable revocation authority; Redis remains secondary storage.
+    storeSessionInDatabase: true,
     expiresIn: Number(process.env.SESSION_EXPIRES_IN) || 86400, // 24 hours
     updateAge: Number(process.env.SESSION_UPDATE_AGE) || 3600, // 1 hour
     cookieCache: {
@@ -296,6 +302,13 @@ export const auth = betterAuth({
       organizationId: {
         type: "string",
         required: false,
+      },
+      disabled: {
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        input: false,
+        returned: false,
       },
     },
   },
@@ -387,6 +400,11 @@ export const auth = betterAuth({
             }
           }
         },
+      },
+    },
+    session: {
+      create: {
+        before: createDisabledUserSessionGuard(pool),
       },
     },
   },
