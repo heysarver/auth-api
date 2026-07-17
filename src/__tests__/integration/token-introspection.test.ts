@@ -1,4 +1,5 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { generateKeyPairSync } from "node:crypto";
 import { sign, verify } from "jsonwebtoken";
 import request from "supertest";
@@ -45,14 +46,18 @@ function createHarness(options: HarnessOptions = {}) {
   const app = express();
   app.use(express.json({ limit: "16kb" }));
   app.use(createTokenIntrospectionParseErrorHandler());
-  app.post("/token/introspect", createTokenIntrospectionHandler({
-    machineToken: "machineToken" in options ? options.machineToken : MACHINE_TOKEN,
-    clientId: "nebulaios",
-    verifyToken,
-    isSessionActive,
-    now: () => NOW,
-    audit,
-  }));
+  app.post(
+    "/token/introspect",
+    rateLimit({ windowMs: 60_000, limit: 1_000, legacyHeaders: false }),
+    createTokenIntrospectionHandler({
+      machineToken: "machineToken" in options ? options.machineToken : MACHINE_TOKEN,
+      clientId: "nebulaios",
+      verifyToken,
+      isSessionActive,
+      now: () => NOW,
+      audit,
+    }),
+  );
   app.use(createTokenIntrospectionParseErrorHandler());
   return { app, verifyToken, isSessionActive, audit };
 }
