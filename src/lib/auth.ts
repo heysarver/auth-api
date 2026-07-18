@@ -59,6 +59,18 @@ pool.on("connect", (client) => {
   });
 });
 
+function buildWebhookHeaders(): Record<string, string> {
+  const webhookSecret = process.env.AUTH_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new Error("AUTH_WEBHOOK_SECRET or WEBHOOK_SECRET is required for webhook delivery");
+  }
+
+  return {
+    'Content-Type': 'application/json',
+    'x-webhook-secret': webhookSecret,
+  };
+}
+
 export const auth = betterAuth({
   database: pool,
 
@@ -140,7 +152,7 @@ export const auth = betterAuth({
         try {
           const response = await fetch(webhookUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: buildWebhookHeaders(),
             body: JSON.stringify({
               event: 'user.email_verified',
               user: {
@@ -378,7 +390,7 @@ export const auth = betterAuth({
               console.log(`🔔 Firing webhook for new user: ${user.email} (${event})`);
               const response = await fetch(webhookUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: buildWebhookHeaders(),
                 body: JSON.stringify({
                   event,
                   user: {
