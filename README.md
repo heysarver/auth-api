@@ -112,6 +112,11 @@ All auth routes are at the **root path** (no `/api/auth/` prefix):
 - `GET /callback/github` - GitHub OAuth callback
 - `GET /jwks` - JWKS endpoint for JWT validation
 - `POST /token/introspect` - Machine-authenticated bearer-token activity check
+- `POST /workload/enrollment-grants` - Operator-authorized one-time enrollment or key-rotation grant
+- `POST /workload/token` - DPoP-bound grant exchange
+- `POST /workload/token/renew` - DPoP and `ath`-bound token renewal
+- `POST /workload/token/introspect` - Machine-authenticated workload-token activity check
+- `POST /workload/revoke` - Operator revocation by token `jti` or enrollment
 
 ### Utility Routes
 
@@ -168,6 +173,15 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 | `TOKEN_INTROSPECTION_CLIENT_ID` | Non-secret audit label for the machine client | token-introspection-client |
 | `TOKEN_INTROSPECTION_BEARER_TOKEN` | Secret-manager-provisioned credential for `/token/introspect` | - |
 | `TOKEN_INTROSPECTION_RATE_LIMIT_MAX` | Per-minute introspection request limit | 120 |
+| `WORKLOAD_IDENTITY_ENABLED` | Explicitly enable workload identity routes | false |
+| `WORKLOAD_JWT_AUDIENCE` | Required workload audience, separate from `JWT_AUDIENCE` | - |
+| `WORKLOAD_TOKEN_ENDPOINT_URL` | Canonical public DPoP `htu` for initial exchange | - |
+| `WORKLOAD_RENEWAL_ENDPOINT_URL` | Canonical public DPoP `htu` for renewal | - |
+| `WORKLOAD_OPERATOR_BEARER_TOKEN` | Secret-manager credential for grant and revocation operations | - |
+| `WORKLOAD_TOKEN_TTL_SECONDS` | Workload token lifetime, bounded to 60-900 seconds | 300 |
+| `WORKLOAD_GRANT_TTL_SECONDS` | One-time grant lifetime, bounded to 30-300 seconds | 300 |
+| `WORKLOAD_DPOP_CLOCK_SKEW_SECONDS` | DPoP proof clock window, bounded to 5-60 seconds | 60 |
+| `WORKLOAD_RATE_LIMIT_MAX` | Per-minute workload-route request limit | 120 |
 | `GITHUB_CLIENT_ID` | GitHub OAuth client ID | - |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth client secret | - |
 | `FRONTEND_URL` | Frontend URL for CORS (domain.com) | http://localhost:5173 |
@@ -204,6 +218,59 @@ for at most 30 seconds; inactive and error responses are non-cacheable.
 Rollout is fail-closed: JWTs issued before this feature lack a session `jti`,
 and Redis-only sessions are not backfilled into PostgreSQL. Users must
 reauthenticate to obtain an introspectable bearer token after deployment.
+
+### Workload identity
+
+Workload identity is an opt-in, consumer-neutral issuer profile. It reuses the
+same Better Auth RS256 signing keys and `/jwks` publication as human JWTs, but
+uses a separate required audience, short lifetime, PostgreSQL activity state,
+and `token_use=workload`. For NebulaiOS deployments, configure
+`WORKLOAD_JWT_AUDIENCE=nebulaios-worker`; the repository does not hard-code a
+downstream audience.
+
+`createBetterAuthWorkloadTokenAdapter` is the temporary compatibility boundary
+for Better Auth 1.6.x. It supplies the missing workload claim and verification
+profile while keeping route dependencies stable for a later native Better Auth
+replacement after the 1.7 feature set reaches a stable release.
+
+The enrollment flow is deliberately server-to-worker:
+
+1. The operator service authorizes an enrollment or key rotation through
+   `POST /workload/enrollment-grants` using its dedicated secret-manager bearer
+   credential. The request binds worker, tenant, agent, enrollment, and the
+   RFC 7638 thumbprint of the worker-generated P-256 public key.
+2. Auth-api returns an opaque, short-lived grant once and stores only its
+   SHA-256 digest.
+3. The worker exchanges that grant at `POST /workload/token` with an ES256 DPoP
+   proof bound to the configured canonical endpoint URL. Grant consumption,
+   proof replay storage, identity activation, and issued-`jti` persistence are
+   transactional.
+4. Renewal uses `Authorization: DPoP <access-token>` plus a fresh DPoP proof
+   containing the access-token hash (`ath`). Renewal rotates and revokes the
+   prior `jti`.
+
+Issued claims are `iss`, the configured `aud`, worker `sub`, `tenant_id`,
+`agent_id`, `enrollment_id`, `jti`, `iat`, `exp`, `token_use=workload`, and
+`cnf.jkt`. A browser cookie or human bearer token cannot mint a workload token.
+Proof validation uses exact configured `htu`, HTTP method, bounded `iat`, a
+single-use proof `jti`, ES256, a public-only P-256 JWK, and `ath` for renewal.
+
+The existing `TOKEN_INTROSPECTION_BEARER_TOKEN` protects
+`POST /workload/token/introspect`. Positive results expose only verified token
+claims, and all workload introspection responses use `no-store` so revocation
+is visible immediately. `POST /workload/revoke`, protected by a distinct
+operator credential,
+soft-revokes one `jti` or an entire enrollment immediately. Raw grants, access
+tokens, DPoP proofs, and operator credentials must never be logged or stored.
+The configured exchange and renewal URLs must use the issuer's public origin.
+
+DPoP replay tombstones are intentionally retained; auth-api does not delete
+production records automatically. Operators must monitor the expiry index and
+perform separately authorized retention maintenance for expired tombstones.
+
+mTLS is not part of this profile. If later enabled, it requires an
+operator-managed CA and a distinct `cnf["x5t#S256"]` contract with no downgrade
+from a configured binding.
 
 ## 🧪 Testing
 

@@ -10,7 +10,6 @@ databaseChangeLog:
             relativeToChangelogFile: true
             splitStatements: true
             stripComments: true
-
   - changeSet:
       id: auth-002
       author: system
@@ -41,3 +40,22 @@ databaseChangeLog:
               DROP TRIGGER IF EXISTS revoke_sessions_when_user_disabled ON auth.users;
               DROP FUNCTION IF EXISTS auth.revoke_sessions_when_user_disabled();
               ALTER TABLE auth.users DROP COLUMN IF EXISTS disabled;
+
+  - changeSet:
+      id: auth-004
+      author: system
+      comment: Add workload identity enrollment, token, and DPoP replay state
+      changes:
+        - sqlFile:
+            path: changes/auth/004-create-workload-identity-tables.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: true
+            sql: |
+              DROP TABLE IF EXISTS auth.workload_dpop_replays;
+              DROP TABLE IF EXISTS auth.workload_tokens;
+              DROP TABLE IF EXISTS auth.workload_enrollment_grants;
+              DROP TABLE IF EXISTS auth.workload_identities;

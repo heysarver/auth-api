@@ -23,6 +23,10 @@ import {
   createTokenIntrospectionHandler,
   tokenIntrospectionRateLimitHandler,
 } from "./lib/token-introspection.js";
+import { loadWorkloadConfig } from "./lib/workload-config.js";
+import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
+import { createPostgresWorkloadStore } from "./lib/workload-store.js";
+import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
 
 // Register Redis cleanup handlers for graceful shutdown
 registerCleanupHandlers();
@@ -83,6 +87,7 @@ app.use(express.json({ limit: "16kb" }));
 app.use(express.urlencoded({ extended: true, limit: "16kb" }));
 // Keep malformed introspection bodies and bearer values out of generic error logs.
 app.use(createTokenIntrospectionParseErrorHandler());
+app.use(createWorkloadParseErrorHandler());
 
 // Health check caching to reduce database load
 let lastHealthCheck = 0;
@@ -178,6 +183,32 @@ app.post(
   }),
 );
 
+const workloadConfig = loadWorkloadConfig();
+if (workloadConfig.enabled) {
+  const workloadLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: workloadConfig.rateLimitMax,
+    handler: tokenIntrospectionRateLimitHandler,
+    validate: { trustProxy: false },
+    store: new RedisStore({
+      // @ts-expect-error - ioredis call() returns unknown, but RedisStore uses a looser command return type.
+      sendCommand: (...args: string[]) => redis.call(...args) as Promise<unknown>,
+      prefix: "auth:ratelimit:workload:",
+    }),
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  const workloadStore = createPostgresWorkloadStore(pool);
+  const workloadTokens = createBetterAuthWorkloadTokenAdapter(auth.api, pool, workloadConfig);
+  app.use(createWorkloadRouter({
+    config: workloadConfig,
+    store: workloadStore,
+    issueToken: workloadTokens.issueToken,
+    verifyToken: workloadTokens.verifyToken,
+    limiter: workloadLimiter,
+  }));
+}
+
 // Turnstile verification middleware (after /health, before Better Auth)
 // Subdomain routing: auth is on auth.domain.com with root paths
 // IMPORTANT: Excludes authenticated endpoints from Turnstile verification
@@ -196,6 +227,7 @@ app.all("/*splat", toNodeHandler(auth));
 
 // Defense in depth: keep parser failures redacted before the generic logger.
 app.use(createTokenIntrospectionParseErrorHandler());
+app.use(createWorkloadParseErrorHandler());
 
 // 404 handler
 app.use((req, res) => {

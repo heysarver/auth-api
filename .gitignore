@@ -8,6 +8,7 @@ node_modules/
 
 # Database migration configuration (contains credentials)
 migrations/liquibase.properties
+databasechangelog.csv
 
 # Build output
 dist/
