@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
 import { redis } from "./redis.js";
 import { createDisabledUserSessionGuard } from "./session-security.js";
+import { buildAdvancedCookieOptions } from "./cookie-config.js";
 
 // OAuth profile types for type-safe access
 interface GoogleProfile {
@@ -335,30 +336,7 @@ export const auth = betterAuth({
   },
 
   // Advanced configuration
-  advanced: {
-    cookiePrefix: process.env.COOKIE_PREFIX || "auth",
-    useSecureCookies: process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging",
-    // Cross-subdomain cookie configuration
-    // Based on working examples: https://github.com/better-auth/better-auth/discussions/5670
-    crossSubDomainCookies: {
-      enabled: !!process.env.COOKIE_DOMAIN,
-      // CRITICAL: Leading dot required for cross-subdomain cookies
-      domain: process.env.COOKIE_DOMAIN ? `.${process.env.COOKIE_DOMAIN}` : undefined,
-    },
-    // Default cookie attributes for cross-subdomain routing
-    defaultCookieAttributes: {
-      sameSite: process.env.NODE_ENV === "development" ? "lax" : "none", // "none" required for cross-domain OAuth
-      // CRITICAL: secure must be false in development (HTTP) for cookies to work
-      // In staging/production (HTTPS), secure must be true
-      secure: process.env.NODE_ENV !== "development",
-      httpOnly: true,
-      partitioned: false, // Prevent browsers from blocking partitioned cookies
-      domain: process.env.COOKIE_DOMAIN
-        ? undefined  // crossSubDomainCookies handles this
-        : undefined, // Let browser scope cookie to exact request domain
-      path: "/",
-    },
-  },
+  advanced: buildAdvancedCookieOptions(process.env),
 
   // Rate limiting
   // Environment-specific limits: dev/staging more lenient, production stricter
