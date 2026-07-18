@@ -4,7 +4,7 @@ import { loadWorkloadConfig } from "../../lib/workload-config.js";
 const validEnv: NodeJS.ProcessEnv = {
   WORKLOAD_IDENTITY_ENABLED: "true",
   BETTER_AUTH_URL: "https://auth.example.test",
-  WORKLOAD_JWT_AUDIENCE: "worker-audience",
+  WORKLOAD_JWT_AUDIENCE: "workload-audience",
   WORKLOAD_TOKEN_ENDPOINT_URL: "https://auth.example.test/workload/token",
   WORKLOAD_RENEWAL_ENDPOINT_URL: "https://auth.example.test/workload/token/renew",
   WORKLOAD_OPERATOR_BEARER_TOKEN: "operator-credential-that-is-long-enough",
@@ -20,7 +20,7 @@ describe("workload configuration", () => {
     expect(loadWorkloadConfig(validEnv)).toEqual({
       enabled: true,
       issuer: "https://auth.example.test",
-      audience: "worker-audience",
+      audience: "workload-audience",
       tokenEndpointUrl: "https://auth.example.test/workload/token",
       renewalEndpointUrl: "https://auth.example.test/workload/token/renew",
       operatorToken: validEnv.WORKLOAD_OPERATOR_BEARER_TOKEN,
@@ -40,7 +40,7 @@ describe("workload configuration", () => {
     ["excessive token lifetime", { ...validEnv, WORKLOAD_TOKEN_TTL_SECONDS: "901" }],
     ["excessive clock skew", { ...validEnv, WORKLOAD_DPOP_CLOCK_SKEW_SECONDS: "61" }],
     ["invalid route rate limit", { ...validEnv, WORKLOAD_RATE_LIMIT_MAX: "0" }],
-    ["human audience reuse", { ...validEnv, JWT_AUDIENCE: "worker-audience" }],
+    ["human audience reuse", { ...validEnv, JWT_AUDIENCE: "workload-audience" }],
     ["wrong exchange path", { ...validEnv, WORKLOAD_TOKEN_ENDPOINT_URL: "https://auth.example.test/token" }],
     ["cross-origin exchange", { ...validEnv, WORKLOAD_TOKEN_ENDPOINT_URL: "https://tokens.example.test/workload/token" }],
     ["shared operator credential", {

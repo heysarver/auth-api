@@ -44,7 +44,7 @@ databaseChangeLog:
   - changeSet:
       id: auth-004
       author: system
-      comment: Add workload identity enrollment, token, and DPoP replay state
+      comment: Add generic workload principal, token, and DPoP replay state
       changes:
         - sqlFile:
             path: changes/auth/004-create-workload-identity-tables.sql
@@ -57,5 +57,5 @@ databaseChangeLog:
             sql: |
               DROP TABLE IF EXISTS auth.workload_dpop_replays;
               DROP TABLE IF EXISTS auth.workload_tokens;
-              DROP TABLE IF EXISTS auth.workload_enrollment_grants;
-              DROP TABLE IF EXISTS auth.workload_identities;
+              DROP TABLE IF EXISTS auth.workload_grants;
+              DROP TABLE IF EXISTS auth.workload_principals;

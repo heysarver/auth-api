@@ -1,13 +1,10 @@
 --liquibase formatted sql
 
 --changeset auth-api:004-create-workload-identity-tables context:development,production
---comment: Add workload enrollment, sender binding, issued-token, and DPoP replay state
+--comment: Add generic workload principals, one-time grants, issued-token state, and DPoP replay protection
 
-CREATE TABLE IF NOT EXISTS auth.workload_identities (
-    enrollment_id TEXT PRIMARY KEY,
-    worker_id TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS auth.workload_principals (
+    principal_id UUID PRIMARY KEY,
     cnf_jkt TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -15,14 +12,11 @@ CREATE TABLE IF NOT EXISTS auth.workload_identities (
     revoked_at TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS auth.workload_enrollment_grants (
+CREATE TABLE IF NOT EXISTS auth.workload_grants (
     id UUID PRIMARY KEY,
     secret_hash CHAR(64) NOT NULL UNIQUE,
-    mode TEXT NOT NULL CHECK (mode IN ('enroll', 'rotate')),
-    worker_id TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
-    enrollment_id TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('create', 'rotate')),
+    principal_id UUID NOT NULL,
     cnf_jkt TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
@@ -30,16 +24,13 @@ CREATE TABLE IF NOT EXISTS auth.workload_enrollment_grants (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS workload_enrollment_grants_active_idx
-    ON auth.workload_enrollment_grants (enrollment_id, expires_at)
+CREATE INDEX IF NOT EXISTS workload_grants_active_idx
+    ON auth.workload_grants (principal_id, expires_at)
     WHERE consumed_at IS NULL AND revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS auth.workload_tokens (
     jti UUID PRIMARY KEY,
-    enrollment_id TEXT NOT NULL REFERENCES auth.workload_identities(enrollment_id),
-    worker_id TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
+    principal_id UUID NOT NULL REFERENCES auth.workload_principals(principal_id),
     cnf_jkt TEXT NOT NULL,
     issued_at TIMESTAMPTZ NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
@@ -47,8 +38,8 @@ CREATE TABLE IF NOT EXISTS auth.workload_tokens (
     revoked_reason TEXT
 );
 
-CREATE INDEX IF NOT EXISTS workload_tokens_enrollment_active_idx
-    ON auth.workload_tokens (enrollment_id, expires_at)
+CREATE INDEX IF NOT EXISTS workload_tokens_principal_active_idx
+    ON auth.workload_tokens (principal_id, expires_at)
     WHERE revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS auth.workload_dpop_replays (
