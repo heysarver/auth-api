@@ -7,9 +7,6 @@ export interface WorkloadTokenClaims extends JWTPayload {
   sub: string;
   iss: string;
   aud: string;
-  tenant_id: string;
-  agent_id: string;
-  enrollment_id: string;
   jti: string;
   iat: number;
   exp: number;
@@ -22,10 +19,7 @@ interface BetterAuthJwtSigner {
 }
 
 export interface WorkloadTokenInput {
-  workerId: string;
-  tenantId: string;
-  agentId: string;
-  enrollmentId: string;
+  principalId: string;
   jkt: string;
 }
 
@@ -47,12 +41,9 @@ export function createWorkloadTokenIssuer(
   return async (input) => {
     const issuedAt = now();
     const claims: WorkloadTokenClaims = {
-      sub: input.workerId,
+      sub: input.principalId,
       iss: config.issuer,
       aud: config.audience,
-      tenant_id: input.tenantId,
-      agent_id: input.agentId,
-      enrollment_id: input.enrollmentId,
       jti: randomUUID(),
       iat: issuedAt,
       exp: issuedAt + config.tokenTtlSeconds,
@@ -67,29 +58,18 @@ export function createWorkloadTokenIssuer(
 function normalizedClaims(payload: JWTPayload, config: EnabledWorkloadConfig): WorkloadTokenClaims | null {
   const cnf = payload.cnf;
   const now = Math.floor(Date.now() / 1000);
-  const requiredClaims = [
-    "agent_id", "aud", "cnf", "enrollment_id", "exp", "iat", "iss", "jti",
-    "sub", "tenant_id", "token_use",
-  ];
+  const requiredClaims = ["aud", "cnf", "exp", "iat", "iss", "jti", "sub", "token_use"];
   const actualClaims = Object.keys(payload).sort();
-  const safeIdentifier = (value: unknown): value is string => (
-    typeof value === "string" &&
-    value.length > 0 &&
-    value.length <= 200 &&
-    /^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/.test(value)
-  );
+  const uuid = (value: unknown): value is string => typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   if (
     actualClaims.length !== requiredClaims.length ||
     !actualClaims.every((claim, index) => claim === requiredClaims[index]) ||
     payload.token_use !== "workload" ||
-    !safeIdentifier(payload.sub) ||
+    !uuid(payload.sub) ||
     payload.iss !== config.issuer ||
     payload.aud !== config.audience ||
-    !safeIdentifier(payload.tenant_id) ||
-    !safeIdentifier(payload.agent_id) ||
-    !safeIdentifier(payload.enrollment_id) ||
-    typeof payload.jti !== "string" ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.jti) ||
+    !uuid(payload.jti) ||
     typeof payload.iat !== "number" || !Number.isInteger(payload.iat) ||
     typeof payload.exp !== "number" || !Number.isInteger(payload.exp) ||
     payload.iat > now + config.dpopClockSkewSeconds ||
@@ -106,9 +86,6 @@ function normalizedClaims(payload: JWTPayload, config: EnabledWorkloadConfig): W
     sub: payload.sub,
     iss: payload.iss,
     aud: payload.aud,
-    tenant_id: payload.tenant_id,
-    agent_id: payload.agent_id,
-    enrollment_id: payload.enrollment_id,
     jti: payload.jti,
     iat: payload.iat,
     exp: payload.exp,

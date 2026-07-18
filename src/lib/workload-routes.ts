@@ -8,7 +8,6 @@ import type { IssuedWorkloadToken, WorkloadTokenClaims, WorkloadTokenInput } fro
 
 const MAX_ACCESS_TOKEN_LENGTH = 16_384;
 const MAX_GRANT_LENGTH = 256;
-const MAX_IDENTIFIER_LENGTH = 200;
 
 type WorkloadOperation = "create_grant" | "exchange" | "introspect" | "renew" | "revoke";
 type WorkloadOutcome = "conflict" | "inactive" | "invalid" | "success" | "unauthorized";
@@ -17,7 +16,7 @@ interface WorkloadAuditEvent {
   event: "workload_identity";
   operation: WorkloadOperation;
   outcome: WorkloadOutcome;
-  enrollmentId?: string;
+  principalId?: string;
   jti?: string;
 }
 
@@ -39,7 +38,7 @@ function record(
   audit: (event: WorkloadAuditEvent) => void,
   operation: WorkloadOperation,
   outcome: WorkloadOutcome,
-  identifiers: Pick<WorkloadAuditEvent, "enrollmentId" | "jti"> = {},
+  identifiers: Pick<WorkloadAuditEvent, "principalId" | "jti"> = {},
 ): void {
   try {
     audit({ event: "workload_identity", operation, outcome, ...identifiers });
@@ -78,36 +77,35 @@ function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
-function identifier(value: unknown): string | null {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > MAX_IDENTIFIER_LENGTH ||
-    !/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/.test(value)
-  ) {
-    return null;
-  }
-  return value;
+function uuid(value: unknown): string | null {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null;
 }
 
 function parseGrantInput(body: unknown): WorkloadGrantInput {
-  const keys = ["agent_id", "cnf_jkt", "enrollment_id", "mode", "tenant_id", "worker_id"];
-  if (!isRecord(body) || !hasExactKeys(body, keys)) {
+  if (!isRecord(body) || (body.mode !== "create" && body.mode !== "rotate")) {
     throw new WorkloadError("invalid_request", 400);
   }
-  if (body.mode !== "enroll" && body.mode !== "rotate") {
+  const expectedKeys = body.mode === "create" ? ["cnf_jkt", "mode"] : ["cnf_jkt", "mode", "principal_id"];
+  if (!hasExactKeys(body, expectedKeys)) {
     throw new WorkloadError("invalid_request", 400);
   }
-
-  const workerId = identifier(body.worker_id);
-  const tenantId = identifier(body.tenant_id);
-  const agentId = identifier(body.agent_id);
-  const enrollmentId = identifier(body.enrollment_id);
-  const jkt = identifier(body.cnf_jkt);
-  if (!workerId || !tenantId || !agentId || !enrollmentId || !jkt || !/^[A-Za-z0-9_-]{43}$/.test(jkt)) {
+  const jkt = typeof body.cnf_jkt === "string" && /^[A-Za-z0-9_-]{43}$/.test(body.cnf_jkt)
+    ? body.cnf_jkt
+    : null;
+  if (!jkt) {
     throw new WorkloadError("invalid_request", 400);
   }
-  return { mode: body.mode, workerId, tenantId, agentId, enrollmentId, jkt };
+  if (body.mode === "create") {
+    return { mode: "create", jkt };
+  }
+  const principalId = uuid(body.principal_id);
+  if (!principalId) {
+    throw new WorkloadError("invalid_request", 400);
+  }
+  return { mode: "rotate", principalId, jkt };
 }
 
 function parseGrant(body: unknown): string {
@@ -130,31 +128,28 @@ function parseToken(body: unknown): string {
   return body.token;
 }
 
-function parseRevocation(body: unknown): { jti?: string; enrollmentId?: string } {
+function parseRevocation(body: unknown): { jti?: string; principalId?: string } {
   if (!isRecord(body) || Object.keys(body).length !== 1) {
     throw new WorkloadError("invalid_request", 400);
   }
   if ("jti" in body) {
-    const jti = identifier(body.jti);
-    if (!jti || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jti)) {
+    const jti = uuid(body.jti);
+    if (!jti) {
       throw new WorkloadError("invalid_request", 400);
     }
     return { jti };
   }
-  if ("enrollment_id" in body) {
-    const enrollmentId = identifier(body.enrollment_id);
-    if (!enrollmentId) throw new WorkloadError("invalid_request", 400);
-    return { enrollmentId };
+  if ("principal_id" in body) {
+    const principalId = uuid(body.principal_id);
+    if (!principalId) throw new WorkloadError("invalid_request", 400);
+    return { principalId };
   }
   throw new WorkloadError("invalid_request", 400);
 }
 
 function tokenInput(claims: WorkloadTokenClaims): WorkloadTokenInput {
   return {
-    workerId: claims.sub,
-    tenantId: claims.tenant_id,
-    agentId: claims.agent_id,
-    enrollmentId: claims.enrollment_id,
+    principalId: claims.sub,
     jkt: claims.cnf.jkt,
   };
 }
@@ -198,15 +193,16 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
     router.use(dependencies.limiter);
   }
 
-  router.post("/workload/enrollment-grants", async (request, response) => {
+  router.post("/workload/principals/grants", async (request, response) => {
     try {
       if (!bearerCredential(request, dependencies.config.operatorToken)) {
         throw new WorkloadError("unauthorized", 401);
       }
       const input = parseGrantInput(request.body);
       const grant = await dependencies.store.createGrant(input, dependencies.config.grantTtlSeconds);
-      record(audit, "create_grant", "success", { enrollmentId: input.enrollmentId });
+      record(audit, "create_grant", "success", { principalId: grant.principalId });
       response.status(201).set("Cache-Control", "no-store").json({
+        principal_id: grant.principalId,
         grant: grant.grant,
         expires_at: grant.expiresAt.toISOString(),
       });
@@ -227,14 +223,11 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
         clockSkewSeconds: dependencies.config.dpopClockSkewSeconds,
       });
       const issued = await dependencies.issueToken({
-        workerId: grant.workerId,
-        tenantId: grant.tenantId,
-        agentId: grant.agentId,
-        enrollmentId: grant.enrollmentId,
+        principalId: grant.principalId,
         jkt: grant.jkt,
       });
       await dependencies.store.consumeGrantAndIssue(grantSecret, proof, issued.claims);
-      record(audit, "exchange", "success", { enrollmentId: issued.claims.enrollment_id, jti: issued.claims.jti });
+      record(audit, "exchange", "success", { principalId: issued.claims.sub, jti: issued.claims.jti });
       response.set("Cache-Control", "no-store").json(tokenResponse(issued, dependencies.config));
     } catch (error) {
       sendError(error, "exchange", audit, response);
@@ -264,7 +257,7 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
       });
       const issued = await dependencies.issueToken(tokenInput(current));
       await dependencies.store.rotateToken(current, proof, issued.claims);
-      record(audit, "renew", "success", { enrollmentId: current.enrollment_id, jti: issued.claims.jti });
+      record(audit, "renew", "success", { principalId: current.sub, jti: issued.claims.jti });
       response.set("Cache-Control", "no-store").json(tokenResponse(issued, dependencies.config));
     } catch (error) {
       sendError(error, "renew", audit, response);
@@ -281,7 +274,7 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
       if (!claims || !await dependencies.store.isTokenActive(claims)) {
         throw new WorkloadError("inactive_token", 200);
       }
-      record(audit, "introspect", "success", { enrollmentId: claims.enrollment_id, jti: claims.jti });
+      record(audit, "introspect", "success", { principalId: claims.sub, jti: claims.jti });
       // Workload revocation is immediate, so even active introspection responses must not be cached.
       response.set("Cache-Control", "no-store").json({ active: true, ...claims });
     } catch (error) {
@@ -296,7 +289,7 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
       }
       const input = parseRevocation(request.body);
       await dependencies.store.revoke(input);
-      record(audit, "revoke", "success", { enrollmentId: input.enrollmentId, jti: input.jti });
+      record(audit, "revoke", "success", { principalId: input.principalId, jti: input.jti });
       response.set("Cache-Control", "no-store").status(204).send();
     } catch (error) {
       sendError(error, "revoke", audit, response);

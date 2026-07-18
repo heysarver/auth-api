@@ -11,10 +11,10 @@ const changelog = readFileSync(
 );
 const workloadChangeSet = changelog.slice(changelog.indexOf("id: auth-004"));
 
-describe("workload identity migration", () => {
+describe("generic workload principal migration", () => {
   it.each([
-    "auth.workload_identities",
-    "auth.workload_enrollment_grants",
+    "auth.workload_principals",
+    "auth.workload_grants",
     "auth.workload_tokens",
     "auth.workload_dpop_replays",
   ])("creates and has an executable changelog rollback for %s", (table) => {
@@ -22,10 +22,12 @@ describe("workload identity migration", () => {
     expect(workloadChangeSet).toContain(`DROP TABLE IF EXISTS ${table}`);
   });
 
-  it("enforces one-time grants, token foreign keys, replay uniqueness, and soft revocation", () => {
+  it("enforces issuer-owned principals, one-time grants, replay uniqueness, and soft revocation", () => {
     expect(migration).toContain("secret_hash CHAR(64) NOT NULL UNIQUE");
-    expect(migration).toContain("REFERENCES auth.workload_identities(enrollment_id)");
+    expect(migration).toContain("principal_id UUID PRIMARY KEY");
+    expect(migration).toContain("REFERENCES auth.workload_principals(principal_id)");
     expect(migration).toContain("PRIMARY KEY (cnf_jkt, proof_jti)");
     expect(migration).toContain("revoked_at TIMESTAMPTZ");
+    expect(migration).not.toMatch(/worker_id|tenant_id|agent_id|enrollment_id/);
   });
 });
