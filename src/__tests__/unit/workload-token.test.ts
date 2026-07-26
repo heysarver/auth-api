@@ -96,11 +96,19 @@ describe("workload token verification", () => {
     ["non-UUID principal", { sub: "consumer-worker-1" }],
     ["consumer authorization claim", { tenant_id: "tenant-1" }],
     ["extra unapproved claim", { scope: "admin" }],
-    ["overlong lifetime", { exp: Math.floor(Date.now() / 1000) + 301 }],
   ])("rejects a %s", async (_label, overrides) => {
     database.query.mockResolvedValue({ rows: [{ publicKey: JSON.stringify(publicJwk) }], rowCount: 1 });
     const verify = createWorkloadTokenVerifier(database as never, config);
     await expect(verify(await signedToken(overrides))).resolves.toBeNull();
+  });
+
+  it("rejects an overlong lifetime", async () => {
+    database.query.mockResolvedValue({ rows: [{ publicKey: JSON.stringify(publicJwk) }], rowCount: 1 });
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const verify = createWorkloadTokenVerifier(database as never, config);
+    await expect(
+      verify(await signedToken({ iat: issuedAt, exp: issuedAt + 301 })),
+    ).resolves.toBeNull();
   });
 
   it("rejects unknown signing keys without attempting fallback verification", async () => {
