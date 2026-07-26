@@ -114,6 +114,23 @@ describe("generic workload principal routes", () => {
     expect(JSON.stringify(response.body)).not.toMatch(/tenant|agent|worker|enrollment/i);
   });
 
+  it("honors an operator-selected grant lifetime up to 24 hours", async () => {
+    const { app, store } = createHarness();
+    await request(app)
+      .post("/workload/principals/grants")
+      .set("Authorization", `Bearer ${config.operatorToken}`)
+      .send({ mode: "create", cnf_jkt: jkt, expires_in: 86_400 })
+      .expect(201);
+
+    expect(store.createGrant).toHaveBeenCalledWith({ mode: "create", jkt }, 86_400);
+
+    await request(app)
+      .post("/workload/principals/grants")
+      .set("Authorization", `Bearer ${config.operatorToken}`)
+      .send({ mode: "create", cnf_jkt: jkt, expires_in: 86_401 })
+      .expect(400, { error: "invalid_request" });
+  });
+
   it("accepts only an issuer principal and replacement key for rotation grants", async () => {
     const { app, store } = createHarness();
     await request(app)

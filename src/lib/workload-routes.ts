@@ -8,6 +8,7 @@ import type { IssuedWorkloadToken, WorkloadTokenClaims, WorkloadTokenInput } fro
 
 const MAX_ACCESS_TOKEN_LENGTH = 16_384;
 const MAX_GRANT_LENGTH = 256;
+const MAX_GRANT_TTL_SECONDS = 24 * 60 * 60;
 
 type WorkloadOperation = "create_grant" | "exchange" | "introspect" | "renew" | "revoke";
 type WorkloadOutcome = "conflict" | "inactive" | "invalid" | "success" | "unauthorized";
@@ -84,12 +85,27 @@ function uuid(value: unknown): string | null {
     : null;
 }
 
-function parseGrantInput(body: unknown): WorkloadGrantInput {
+function parseGrantInput(
+  body: unknown,
+  defaultTtlSeconds: number,
+): { input: WorkloadGrantInput; ttlSeconds: number } {
   if (!isRecord(body) || (body.mode !== "create" && body.mode !== "rotate")) {
     throw new WorkloadError("invalid_request", 400);
   }
-  const expectedKeys = body.mode === "create" ? ["cnf_jkt", "mode"] : ["cnf_jkt", "mode", "principal_id"];
+  const includesExplicitTtl = "expires_in" in body;
+  const expectedKeys = body.mode === "create"
+    ? ["cnf_jkt", "mode", ...(includesExplicitTtl ? ["expires_in"] : [])]
+    : ["cnf_jkt", "mode", "principal_id", ...(includesExplicitTtl ? ["expires_in"] : [])];
   if (!hasExactKeys(body, expectedKeys)) {
+    throw new WorkloadError("invalid_request", 400);
+  }
+  const ttlSeconds = typeof body.expires_in === "number" &&
+    Number.isInteger(body.expires_in) &&
+    body.expires_in >= 60 &&
+    body.expires_in <= MAX_GRANT_TTL_SECONDS
+    ? body.expires_in
+    : defaultTtlSeconds;
+  if (body.expires_in !== undefined && ttlSeconds !== body.expires_in) {
     throw new WorkloadError("invalid_request", 400);
   }
   const jkt = typeof body.cnf_jkt === "string" && /^[A-Za-z0-9_-]{43}$/.test(body.cnf_jkt)
@@ -99,13 +115,13 @@ function parseGrantInput(body: unknown): WorkloadGrantInput {
     throw new WorkloadError("invalid_request", 400);
   }
   if (body.mode === "create") {
-    return { mode: "create", jkt };
+    return { input: { mode: "create", jkt }, ttlSeconds };
   }
   const principalId = uuid(body.principal_id);
   if (!principalId) {
     throw new WorkloadError("invalid_request", 400);
   }
-  return { mode: "rotate", principalId, jkt };
+  return { input: { mode: "rotate", principalId, jkt }, ttlSeconds };
 }
 
 function parseGrant(body: unknown): string {
@@ -198,8 +214,11 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
       if (!bearerCredential(request, dependencies.config.operatorToken)) {
         throw new WorkloadError("unauthorized", 401);
       }
-      const input = parseGrantInput(request.body);
-      const grant = await dependencies.store.createGrant(input, dependencies.config.grantTtlSeconds);
+      const { input, ttlSeconds } = parseGrantInput(
+        request.body,
+        dependencies.config.grantTtlSeconds,
+      );
+      const grant = await dependencies.store.createGrant(input, ttlSeconds);
       record(audit, "create_grant", "success", { principalId: grant.principalId });
       response.status(201).set("Cache-Control", "no-store").json({
         principal_id: grant.principalId,

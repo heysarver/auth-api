@@ -179,7 +179,7 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 | `WORKLOAD_RENEWAL_ENDPOINT_URL` | Canonical public DPoP `htu` for renewal | - |
 | `WORKLOAD_OPERATOR_BEARER_TOKEN` | Secret-manager credential for grant and revocation operations | - |
 | `WORKLOAD_TOKEN_TTL_SECONDS` | Workload token lifetime, bounded to 60-900 seconds | 300 |
-| `WORKLOAD_GRANT_TTL_SECONDS` | One-time grant lifetime, bounded to 30-300 seconds | 300 |
+| `WORKLOAD_GRANT_TTL_SECONDS` | Default one-time grant lifetime for operator calls that omit `expires_in`, bounded to 30-300 seconds | 300 |
 | `WORKLOAD_DPOP_CLOCK_SKEW_SECONDS` | DPoP proof clock window, bounded to 5-60 seconds | 60 |
 | `WORKLOAD_RATE_LIMIT_MAX` | Per-minute workload-route request limit | 120 |
 | `GITHUB_CLIENT_ID` | GitHub OAuth client ID | - |
@@ -237,7 +237,9 @@ The principal flow is deliberately registrar-to-workload-client:
 1. The registrar requests principal creation through
    `POST /workload/principals/grants` with `mode=create` and the RFC 7638
    thumbprint of the client-generated P-256 public key. Auth-api generates the
-   opaque `principal_id`; callers cannot choose it. Key rotation uses
+   opaque `principal_id`; callers cannot choose it. The trusted operator may
+   include an integer `expires_in` from 60 through 86,400 seconds; omitting it
+   uses `WORKLOAD_GRANT_TTL_SECONDS`. Key rotation uses
    `mode=rotate`, an existing `principal_id`, and the replacement thumbprint.
 2. Auth-api returns the `principal_id` and an opaque, short-lived grant once,
    storing only the grant's SHA-256 digest. Consumers own any mapping from that
