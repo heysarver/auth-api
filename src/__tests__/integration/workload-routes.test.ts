@@ -279,13 +279,18 @@ describe("generic workload principal routes", () => {
       .expect(401, { error: "unauthorized" });
   });
 
-  it("rejects renewal without the credential, idempotency key, and DPoP proof before signing", async () => {
+  it("preserves legacy access-token renewal and rejects incomplete credential renewal", async () => {
     const { app, issueToken } = createHarness();
-    await request(app).post("/workload/token/renew").send({}).expect(400, { error: "invalid_request" });
+    await request(app).post("/workload/token/renew")
+      .set("Authorization", `DPoP ${accessToken}`)
+      .set("DPoP", await dpopProof(config.renewalEndpointUrl, accessToken))
+      .send({})
+      .expect(200);
+    expect(issueToken).toHaveBeenCalledOnce();
+
     await request(app).post("/workload/token/renew")
       .send({ renewal_credential: `wrc1_${"A".repeat(43)}` })
       .expect(400, { error: "invalid_request" });
-    expect(issueToken).not.toHaveBeenCalled();
   });
 
   it("keeps legacy exchange unchanged and adds renewable fields only for opt-in grants", async () => {

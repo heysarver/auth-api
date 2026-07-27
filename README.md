@@ -261,6 +261,10 @@ The principal flow is deliberately registrar-to-workload-client:
    request key replay the same replacement for two minutes; reuse with another
    key revokes the family.
 
+Existing non-renewable clients may continue the original empty-body
+`Authorization: DPoP <access-token>` renewal with an `ath`-bound proof. The
+renewable credential branch is additive and does not remove that contract.
+
 Issued claims are exactly `iss`, the configured `aud`, principal UUID `sub`,
 `jti`, `iat`, `exp`, `token_use=workload`, and `cnf.jkt`. Tenant, resource,
 capability, or other consumer authorization data is never accepted, persisted,

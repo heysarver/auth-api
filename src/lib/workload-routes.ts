@@ -60,6 +60,15 @@ function bearerCredential(request: Request, expected: string): boolean {
   return Boolean(match?.[1] && compareSecrets(match[1], expected));
 }
 
+function dpopAccessToken(request: Request): string | null {
+  const match = /^DPoP ([^\s]+)$/i.exec(request.get("authorization") ?? "");
+  const token = match?.[1];
+  if (!token || token.length > MAX_ACCESS_TOKEN_LENGTH) {
+    return null;
+  }
+  return token;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -184,6 +193,13 @@ function parseRevocation(body: unknown): { familyId?: string; jti?: string; prin
   throw new WorkloadError("invalid_request", 400);
 }
 
+function tokenInput(claims: WorkloadTokenClaims): WorkloadTokenInput {
+  return {
+    principalId: claims.sub,
+    jkt: claims.cnf.jkt,
+  };
+}
+
 function tokenResponse(issued: IssuedWorkloadToken, config: EnabledWorkloadConfig) {
   return {
     access_token: issued.token,
@@ -286,6 +302,37 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
 
   router.post("/workload/token/renew", async (request, response) => {
     try {
+      if (isRecord(request.body) && hasExactKeys(request.body, [])) {
+        // Preserve the original access-token renewal contract for existing
+        // non-renewable clients. Renewable families use the additive
+        // credential branch below.
+        const accessToken = dpopAccessToken(request);
+        if (!accessToken) {
+          throw new WorkloadError("inactive_token", 401);
+        }
+        const current = await dependencies.verifyToken(accessToken);
+        if (!current) {
+          throw new WorkloadError("inactive_token", 401);
+        }
+        const proof = await verifyDpopProof({
+          proof: request.get("dpop"),
+          method: "POST",
+          url: dependencies.config.renewalEndpointUrl,
+          expectedJkt: current.cnf.jkt,
+          accessToken,
+          clockSkewSeconds: dependencies.config.dpopClockSkewSeconds,
+        });
+        const issued = await dependencies.issueToken(tokenInput(current));
+        await dependencies.store.rotateToken(current, proof, issued.claims);
+        record(audit, "renew", "success", {
+          principalId: current.sub,
+          jti: issued.claims.jti,
+        });
+        response
+          .set("Cache-Control", "no-store")
+          .json(tokenResponse(issued, dependencies.config));
+        return;
+      }
       const credential = parseRenewalCredential(request.body);
       const requestKey = idempotencyKey(request);
       const binding = await dependencies.store.readRenewalCredential(credential);
