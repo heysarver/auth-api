@@ -187,6 +187,24 @@ describe("PostgreSQL generic workload store", () => {
     expect(statements.some((sql) => sql.includes("INSERT INTO auth.workload_tokens"))).toBe(true);
   });
 
+  it("rejects legacy renewal for a token owned by a renewable credential family", async () => {
+    const next = { ...claims, jti: "33333333-3333-4333-8333-333333333333" };
+    const { database, client } = databaseWithClient(async (sql) => {
+      if (sql.includes("SELECT 1") && sql.includes("FOR UPDATE")) return result();
+      return result([], 1);
+    });
+    const store = createPostgresWorkloadStore(database as never);
+
+    await expect(store.rotateToken(claims, {
+      jkt, proofJti: "renewable-downgrade-proof", expiresAt: new Date(Date.now() + 60_000),
+    }, next)).rejects.toThrow("inactive_token");
+
+    const statements = client.query.mock.calls.map(([sql]) => String(sql));
+    expect(statements.some((sql) => sql.includes("token.renewal_family_id IS NULL"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("INSERT INTO auth.workload_tokens"))).toBe(false);
+    expect(statements.some((sql) => sql.trim() === "ROLLBACK")).toBe(true);
+  });
+
   it("returns the same renewal replacement for a consumed credential and matching idempotency key", async () => {
     const next = { ...claims, jti: "33333333-3333-4333-8333-333333333333" };
     const { database, client } = databaseWithClient(async (sql) => {

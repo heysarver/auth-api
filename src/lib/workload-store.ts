@@ -359,6 +359,7 @@ export function createPostgresWorkloadStore(
               AND token.cnf_jkt = $3
               AND token.revoked_at IS NULL
               AND token.expires_at > CURRENT_TIMESTAMP
+              AND token.renewal_family_id IS NULL
               AND principal.status = 'active'
               AND principal.revoked_at IS NULL
               AND principal.cnf_jkt = token.cnf_jkt
