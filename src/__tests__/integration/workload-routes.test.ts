@@ -18,8 +18,11 @@ const config: EnabledWorkloadConfig = {
   renewalEndpointUrl: "https://auth.example.test/workload/token/renew",
   operatorToken: "operator-credential-that-is-long-enough",
   introspectionToken: "introspection-credential-long-enough",
+  renewalKey: "renewal-key",
   tokenTtlSeconds: 300,
   grantTtlSeconds: 300,
+  renewalTtlSeconds: 31_536_000,
+  renewalIdempotencyTtlSeconds: 120,
   dpopClockSkewSeconds: 60,
   rateLimitMax: 120,
 };
@@ -61,17 +64,28 @@ function createStore(): WorkloadStore {
       principalId: input.mode === "create" ? principalId : input.principalId,
       jkt: input.jkt,
       grant: grantSecret,
+      renewable: input.renewable === true,
       expiresAt: new Date(Date.now() + ttl * 1000),
     })),
     readGrant: vi.fn(async () => ({
       mode: "create" as const,
       principalId,
       jkt,
+      renewable: false,
       expiresAt: new Date(Date.now() + 300_000),
     })),
-    consumeGrantAndIssue: vi.fn(async () => undefined),
+    consumeGrantAndIssue: vi.fn(async () => null),
     rotateToken: vi.fn(async () => undefined),
+    readRenewalCredential: vi.fn(async () => ({ jkt, principalId })),
+    rotateRenewalCredential: vi.fn(async (_credential, _key, _proof, next) => ({
+      credential: `wrc1_${"A".repeat(43)}`,
+      familyId: "33333333-3333-4333-8333-333333333333",
+      generation: 1,
+      expiresAt: new Date(Date.now() + config.renewalTtlSeconds * 1000),
+      claims: next,
+    })),
     isTokenActive: vi.fn(async () => true),
+    credentialFamilyForToken: vi.fn(async () => null),
     revoke: vi.fn(async () => 1),
   };
 }
@@ -80,10 +94,11 @@ function createHarness(store = createStore(), overrides: { verifyToken?: () => P
   const audit = vi.fn();
   const issueToken = vi.fn(async () => ({ token: accessToken, claims: { ...claims, cnf: { jkt } } }));
   const verifyToken = vi.fn(overrides.verifyToken ?? (async () => ({ ...claims, cnf: { jkt } })));
+  const signTokenClaims = vi.fn(async (signedClaims: WorkloadTokenClaims) => ({ token: accessToken, claims: signedClaims }));
   const app = express();
   app.use(express.json({ limit: "16kb" }));
   app.use(createWorkloadParseErrorHandler());
-  app.use(createWorkloadRouter({ config, store, issueToken, verifyToken, audit }));
+  app.use(createWorkloadRouter({ config, store, issueToken, signTokenClaims, verifyToken, audit }));
   app.use(createWorkloadParseErrorHandler());
   return { app, store, issueToken, audit };
 }
@@ -110,7 +125,7 @@ describe("generic workload principal routes", () => {
       .expect(201);
 
     expect(response.body).toMatchObject({ principal_id: principalId, grant: grantSecret });
-    expect(store.createGrant).toHaveBeenCalledWith({ mode: "create", jkt }, 300);
+    expect(store.createGrant).toHaveBeenCalledWith({ mode: "create", jkt, renewable: false }, 300);
     expect(JSON.stringify(response.body)).not.toMatch(/tenant|agent|worker|enrollment/i);
   });
 
@@ -122,13 +137,31 @@ describe("generic workload principal routes", () => {
       .send({ mode: "create", cnf_jkt: jkt, expires_in: 86_400 })
       .expect(201);
 
-    expect(store.createGrant).toHaveBeenCalledWith({ mode: "create", jkt }, 86_400);
+    expect(store.createGrant).toHaveBeenCalledWith({ mode: "create", jkt, renewable: false }, 86_400);
 
     await request(app)
       .post("/workload/principals/grants")
       .set("Authorization", `Bearer ${config.operatorToken}`)
       .send({ mode: "create", cnf_jkt: jkt, expires_in: 86_401 })
       .expect(400, { error: "invalid_request" });
+  });
+
+  it("makes renewable grants explicit without changing the default response", async () => {
+    const { app, store } = createHarness();
+    const renewable = await request(app)
+      .post("/workload/principals/grants")
+      .set("Authorization", `Bearer ${config.operatorToken}`)
+      .send({ mode: "create", cnf_jkt: jkt, renewable: true })
+      .expect(201);
+    expect(renewable.body.renewable).toBe(true);
+    expect(store.createGrant).toHaveBeenCalledWith({ mode: "create", jkt, renewable: true }, 300);
+
+    const legacy = await request(createHarness().app)
+      .post("/workload/principals/grants")
+      .set("Authorization", `Bearer ${config.operatorToken}`)
+      .send({ mode: "create", cnf_jkt: jkt })
+      .expect(201);
+    expect(legacy.body).not.toHaveProperty("renewable");
   });
 
   it("accepts only an issuer principal and replacement key for rotation grants", async () => {
@@ -138,7 +171,7 @@ describe("generic workload principal routes", () => {
       .set("Authorization", `Bearer ${config.operatorToken}`)
       .send({ mode: "rotate", principal_id: principalId, cnf_jkt: jkt })
       .expect(201);
-    expect(store.createGrant).toHaveBeenCalledWith({ mode: "rotate", principalId, jkt }, 300);
+    expect(store.createGrant).toHaveBeenCalledWith({ mode: "rotate", principalId, jkt, renewable: false }, 300);
 
     await request(app)
       .post("/workload/principals/grants")
@@ -174,24 +207,40 @@ describe("generic workload principal routes", () => {
     expect(store.consumeGrantAndIssue).not.toHaveBeenCalled();
   });
 
-  it("renews a live token only with an ath-bound DPoP proof", async () => {
+  it("renews with a rotating credential, stable idempotency key, and enrolled DPoP key", async () => {
     const { app, store } = createHarness();
+    const renewalCredential = `wrc1_${"A".repeat(43)}`;
     await request(app).post("/workload/token/renew")
-      .set("Authorization", `DPoP ${accessToken}`)
-      .set("DPoP", await dpopProof(config.renewalEndpointUrl, accessToken)).send({}).expect(200);
-    expect(store.rotateToken).toHaveBeenCalledOnce();
+      .set("Idempotency-Key", "renewal-request-1")
+      .set("DPoP", await dpopProof(config.renewalEndpointUrl))
+      .send({ renewal_credential: renewalCredential }).expect(200);
+    expect(store.rotateRenewalCredential).toHaveBeenCalledWith(
+      renewalCredential,
+      "renewal-request-1",
+      expect.objectContaining({ jkt }),
+      expect.objectContaining({ sub: principalId, cnf: { jkt } }),
+    );
 
     await request(app).post("/workload/token/renew")
-      .set("Authorization", `DPoP ${accessToken}`)
-      .set("DPoP", await dpopProof(config.renewalEndpointUrl)).send({})
+      .set("Idempotency-Key", "renewal-request-2")
+      .set("DPoP", await dpopProof(config.renewalEndpointUrl, accessToken))
+      .send({ renewal_credential: renewalCredential })
       .expect(401, { error: "invalid_dpop_proof" });
   });
 
   it("returns only active persisted generic claims from introspection", async () => {
     const { app, store } = createHarness();
+    vi.mocked(store.credentialFamilyForToken).mockResolvedValue(
+      "33333333-3333-4333-8333-333333333333",
+    );
     const response = await request(app).post("/workload/token/introspect")
       .set("Authorization", `Bearer ${config.introspectionToken}`).send({ token: accessToken }).expect(200);
-    expect(response.body).toMatchObject({ active: true, sub: principalId, token_use: "workload" });
+    expect(response.body).toMatchObject({
+      active: true,
+      sub: principalId,
+      token_use: "workload",
+      credential_family_id: "33333333-3333-4333-8333-333333333333",
+    });
     expect(response.body).not.toHaveProperty("tenant_id");
     expect(response.headers["cache-control"]).toBe("no-store");
 
@@ -221,16 +270,47 @@ describe("generic workload principal routes", () => {
       .send({ jti: claims.jti }).expect(204);
     expect(store.revoke).toHaveBeenCalledWith({ jti: claims.jti });
 
+    const familyId = "33333333-3333-4333-8333-333333333333";
+    await request(app).post("/workload/revoke").set("Authorization", `Bearer ${config.operatorToken}`)
+      .send({ credential_family_id: familyId }).expect(204);
+    expect(store.revoke).toHaveBeenCalledWith({ familyId });
+
     await request(app).post("/workload/revoke").send({ principal_id: principalId })
       .expect(401, { error: "unauthorized" });
   });
 
-  it("rejects renewal without an active DPoP bearer before signing", async () => {
+  it("rejects renewal without the credential, idempotency key, and DPoP proof before signing", async () => {
     const { app, issueToken } = createHarness();
-    await request(app).post("/workload/token/renew").send({}).expect(401, { error: "invalid_token" });
-    await request(app).post("/workload/token/renew").set("Authorization", `DPoP ${accessToken}`)
-      .send({ extra: true }).expect(400, { error: "invalid_request" });
+    await request(app).post("/workload/token/renew").send({}).expect(400, { error: "invalid_request" });
+    await request(app).post("/workload/token/renew")
+      .send({ renewal_credential: `wrc1_${"A".repeat(43)}` })
+      .expect(400, { error: "invalid_request" });
     expect(issueToken).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy exchange unchanged and adds renewable fields only for opt-in grants", async () => {
+    const store = createStore();
+    vi.mocked(store.consumeGrantAndIssue).mockResolvedValue({
+      credential: `wrc1_${"A".repeat(43)}`,
+      familyId: "33333333-3333-4333-8333-333333333333",
+      generation: 0,
+      expiresAt: new Date(Date.now() + config.renewalTtlSeconds * 1000),
+    });
+    const { app } = createHarness(store);
+    const response = await request(app).post("/workload/token")
+      .set("DPoP", await dpopProof(config.tokenEndpointUrl))
+      .send({ grant: grantSecret }).expect(200);
+    expect(response.body).toMatchObject({
+      renewal_credential: `wrc1_${"A".repeat(43)}`,
+      credential_family_id: "33333333-3333-4333-8333-333333333333",
+      renewal_generation: 0,
+    });
+
+    const legacy = createStore();
+    const legacyResponse = await request(createHarness(legacy).app).post("/workload/token")
+      .set("DPoP", await dpopProof(config.tokenEndpointUrl))
+      .send({ grant: grantSecret }).expect(200);
+    expect(legacyResponse.body).toEqual({ access_token: accessToken, token_type: "DPoP", expires_in: 300 });
   });
 
   it("fails closed and keeps credential-bearing errors secret-safe", async () => {

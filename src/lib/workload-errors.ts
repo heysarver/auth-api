@@ -3,6 +3,7 @@ export type WorkloadErrorCode =
   | "inactive_token"
   | "invalid_dpop_proof"
   | "invalid_grant"
+  | "invalid_renewal_credential"
   | "invalid_request"
   | "misconfigured"
   | "service_unavailable"

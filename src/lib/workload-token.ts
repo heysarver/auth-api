@@ -30,7 +30,17 @@ export interface IssuedWorkloadToken {
 
 export interface BetterAuthWorkloadTokenAdapter {
   issueToken: (input: WorkloadTokenInput) => Promise<IssuedWorkloadToken>;
+  signTokenClaims: (claims: WorkloadTokenClaims) => Promise<IssuedWorkloadToken>;
   verifyToken: (token: string) => Promise<WorkloadTokenClaims | null>;
+}
+
+export function createWorkloadTokenSigner(
+  signer: BetterAuthJwtSigner,
+): (claims: WorkloadTokenClaims) => Promise<IssuedWorkloadToken> {
+  return async (claims) => {
+    const response = await signer.signJWT({ body: { payload: claims } });
+    return { token: response.token, claims };
+  };
 }
 
 export function createWorkloadTokenIssuer(
@@ -38,6 +48,7 @@ export function createWorkloadTokenIssuer(
   config: EnabledWorkloadConfig,
   now: () => number = () => Math.floor(Date.now() / 1000),
 ): (input: WorkloadTokenInput) => Promise<IssuedWorkloadToken> {
+  const signTokenClaims = createWorkloadTokenSigner(signer);
   return async (input) => {
     const issuedAt = now();
     const claims: WorkloadTokenClaims = {
@@ -50,8 +61,7 @@ export function createWorkloadTokenIssuer(
       token_use: "workload",
       cnf: { jkt: input.jkt },
     };
-    const response = await signer.signJWT({ body: { payload: claims } });
-    return { token: response.token, claims };
+    return signTokenClaims(claims);
   };
 }
 
@@ -144,6 +154,7 @@ export function createBetterAuthWorkloadTokenAdapter(
 ): BetterAuthWorkloadTokenAdapter {
   return {
     issueToken: createWorkloadTokenIssuer(signer, config),
+    signTokenClaims: createWorkloadTokenSigner(signer),
     verifyToken: createWorkloadTokenVerifier(database, config),
   };
 }

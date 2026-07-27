@@ -25,6 +25,7 @@ export interface WorkloadRouteDependencies {
   config: EnabledWorkloadConfig;
   store: WorkloadStore;
   issueToken: (input: WorkloadTokenInput) => Promise<IssuedWorkloadToken>;
+  signTokenClaims: (claims: WorkloadTokenClaims) => Promise<IssuedWorkloadToken>;
   verifyToken: (token: string) => Promise<WorkloadTokenClaims | null>;
   limiter?: RequestHandler;
   audit?: (event: WorkloadAuditEvent) => void;
@@ -59,15 +60,6 @@ function bearerCredential(request: Request, expected: string): boolean {
   return Boolean(match?.[1] && compareSecrets(match[1], expected));
 }
 
-function dpopAccessToken(request: Request): string | null {
-  const match = /^DPoP ([^\s]+)$/i.exec(request.get("authorization") ?? "");
-  const token = match?.[1];
-  if (!token || token.length > MAX_ACCESS_TOKEN_LENGTH) {
-    return null;
-  }
-  return token;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -93,9 +85,10 @@ function parseGrantInput(
     throw new WorkloadError("invalid_request", 400);
   }
   const includesExplicitTtl = "expires_in" in body;
+  const includesRenewable = "renewable" in body;
   const expectedKeys = body.mode === "create"
-    ? ["cnf_jkt", "mode", ...(includesExplicitTtl ? ["expires_in"] : [])]
-    : ["cnf_jkt", "mode", "principal_id", ...(includesExplicitTtl ? ["expires_in"] : [])];
+    ? ["cnf_jkt", "mode", ...(includesExplicitTtl ? ["expires_in"] : []), ...(includesRenewable ? ["renewable"] : [])]
+    : ["cnf_jkt", "mode", "principal_id", ...(includesExplicitTtl ? ["expires_in"] : []), ...(includesRenewable ? ["renewable"] : [])];
   if (!hasExactKeys(body, expectedKeys)) {
     throw new WorkloadError("invalid_request", 400);
   }
@@ -114,14 +107,18 @@ function parseGrantInput(
   if (!jkt) {
     throw new WorkloadError("invalid_request", 400);
   }
+  if (body.renewable !== undefined && typeof body.renewable !== "boolean") {
+    throw new WorkloadError("invalid_request", 400);
+  }
+  const renewable = body.renewable === true;
   if (body.mode === "create") {
-    return { input: { mode: "create", jkt }, ttlSeconds };
+    return { input: { mode: "create", jkt, renewable }, ttlSeconds };
   }
   const principalId = uuid(body.principal_id);
   if (!principalId) {
     throw new WorkloadError("invalid_request", 400);
   }
-  return { input: { mode: "rotate", principalId, jkt }, ttlSeconds };
+  return { input: { mode: "rotate", principalId, jkt, renewable }, ttlSeconds };
 }
 
 function parseGrant(body: unknown): string {
@@ -144,7 +141,26 @@ function parseToken(body: unknown): string {
   return body.token;
 }
 
-function parseRevocation(body: unknown): { jti?: string; principalId?: string } {
+function parseRenewalCredential(body: unknown): string {
+  if (!isRecord(body) || !hasExactKeys(body, ["renewal_credential"])) {
+    throw new WorkloadError("invalid_request", 400);
+  }
+  const credential = body.renewal_credential;
+  if (typeof credential !== "string" || !/^wrc1_[A-Za-z0-9_-]{43}$/.test(credential)) {
+    throw new WorkloadError("invalid_request", 400);
+  }
+  return credential;
+}
+
+function idempotencyKey(request: Request): string {
+  const key = request.get("idempotency-key");
+  if (!key || !/^[A-Za-z0-9._:-]{8,200}$/.test(key)) {
+    throw new WorkloadError("invalid_request", 400);
+  }
+  return key;
+}
+
+function parseRevocation(body: unknown): { familyId?: string; jti?: string; principalId?: string } {
   if (!isRecord(body) || Object.keys(body).length !== 1) {
     throw new WorkloadError("invalid_request", 400);
   }
@@ -160,14 +176,12 @@ function parseRevocation(body: unknown): { jti?: string; principalId?: string } 
     if (!principalId) throw new WorkloadError("invalid_request", 400);
     return { principalId };
   }
+  if ("credential_family_id" in body) {
+    const familyId = uuid(body.credential_family_id);
+    if (!familyId) throw new WorkloadError("invalid_request", 400);
+    return { familyId };
+  }
   throw new WorkloadError("invalid_request", 400);
-}
-
-function tokenInput(claims: WorkloadTokenClaims): WorkloadTokenInput {
-  return {
-    principalId: claims.sub,
-    jkt: claims.cnf.jkt,
-  };
 }
 
 function tokenResponse(issued: IssuedWorkloadToken, config: EnabledWorkloadConfig) {
@@ -175,6 +189,20 @@ function tokenResponse(issued: IssuedWorkloadToken, config: EnabledWorkloadConfi
     access_token: issued.token,
     token_type: "DPoP",
     expires_in: config.tokenTtlSeconds,
+  };
+}
+
+function renewableTokenResponse(
+  issued: IssuedWorkloadToken,
+  renewal: { credential: string; familyId: string; generation: number },
+  config: EnabledWorkloadConfig,
+) {
+  return {
+    ...tokenResponse(issued, config),
+    renewal_credential: renewal.credential,
+    renewal_credential_expires_in: config.renewalTtlSeconds,
+    credential_family_id: renewal.familyId,
+    renewal_generation: renewal.generation,
   };
 }
 
@@ -224,6 +252,7 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
         principal_id: grant.principalId,
         grant: grant.grant,
         expires_at: grant.expiresAt.toISOString(),
+        ...(grant.renewable ? { renewable: true } : {}),
       });
     } catch (error) {
       sendError(error, "create_grant", audit, response);
@@ -245,9 +274,11 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
         principalId: grant.principalId,
         jkt: grant.jkt,
       });
-      await dependencies.store.consumeGrantAndIssue(grantSecret, proof, issued.claims);
+      const renewal = await dependencies.store.consumeGrantAndIssue(grantSecret, proof, issued.claims);
       record(audit, "exchange", "success", { principalId: issued.claims.sub, jti: issued.claims.jti });
-      response.set("Cache-Control", "no-store").json(tokenResponse(issued, dependencies.config));
+      response.set("Cache-Control", "no-store").json(
+        renewal ? renewableTokenResponse(issued, renewal, dependencies.config) : tokenResponse(issued, dependencies.config),
+      );
     } catch (error) {
       sendError(error, "exchange", audit, response);
     }
@@ -255,29 +286,26 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
 
   router.post("/workload/token/renew", async (request, response) => {
     try {
-      if (!isRecord(request.body) || !hasExactKeys(request.body, [])) {
-        throw new WorkloadError("invalid_request", 400);
-      }
-      const accessToken = dpopAccessToken(request);
-      if (!accessToken) {
-        throw new WorkloadError("inactive_token", 401);
-      }
-      const current = await dependencies.verifyToken(accessToken);
-      if (!current) {
-        throw new WorkloadError("inactive_token", 401);
-      }
+      const credential = parseRenewalCredential(request.body);
+      const requestKey = idempotencyKey(request);
+      const binding = await dependencies.store.readRenewalCredential(credential);
       const proof = await verifyDpopProof({
         proof: request.get("dpop"),
         method: "POST",
         url: dependencies.config.renewalEndpointUrl,
-        expectedJkt: current.cnf.jkt,
-        accessToken,
+        expectedJkt: binding.jkt,
         clockSkewSeconds: dependencies.config.dpopClockSkewSeconds,
       });
-      const issued = await dependencies.issueToken(tokenInput(current));
-      await dependencies.store.rotateToken(current, proof, issued.claims);
-      record(audit, "renew", "success", { principalId: current.sub, jti: issued.claims.jti });
-      response.set("Cache-Control", "no-store").json(tokenResponse(issued, dependencies.config));
+      const candidate = await dependencies.issueToken({ principalId: binding.principalId, jkt: binding.jkt });
+      const rotation = await dependencies.store.rotateRenewalCredential(
+        credential,
+        requestKey,
+        proof,
+        candidate.claims,
+      );
+      const issued = await dependencies.signTokenClaims(rotation.claims);
+      record(audit, "renew", "success", { principalId: issued.claims.sub, jti: issued.claims.jti });
+      response.set("Cache-Control", "no-store").json(renewableTokenResponse(issued, rotation, dependencies.config));
     } catch (error) {
       sendError(error, "renew", audit, response);
     }
@@ -293,9 +321,17 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
       if (!claims || !await dependencies.store.isTokenActive(claims)) {
         throw new WorkloadError("inactive_token", 200);
       }
+      const credentialFamilyId =
+        await dependencies.store.credentialFamilyForToken(claims);
       record(audit, "introspect", "success", { principalId: claims.sub, jti: claims.jti });
       // Workload revocation is immediate, so even active introspection responses must not be cached.
-      response.set("Cache-Control", "no-store").json({ active: true, ...claims });
+      response.set("Cache-Control", "no-store").json({
+        active: true,
+        ...claims,
+        ...(credentialFamilyId
+          ? { credential_family_id: credentialFamilyId }
+          : {}),
+      });
     } catch (error) {
       sendError(error, "introspect", audit, response);
     }

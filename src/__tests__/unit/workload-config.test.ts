@@ -4,6 +4,7 @@ import { loadWorkloadConfig } from "../../lib/workload-config.js";
 const validEnv: NodeJS.ProcessEnv = {
   WORKLOAD_IDENTITY_ENABLED: "true",
   BETTER_AUTH_URL: "https://auth.example.test",
+  BETTER_AUTH_SECRET: "better-auth-secret-that-is-long-enough",
   WORKLOAD_JWT_AUDIENCE: "workload-audience",
   WORKLOAD_TOKEN_ENDPOINT_URL: "https://auth.example.test/workload/token",
   WORKLOAD_RENEWAL_ENDPOINT_URL: "https://auth.example.test/workload/token/renew",
@@ -25,8 +26,11 @@ describe("workload configuration", () => {
       renewalEndpointUrl: "https://auth.example.test/workload/token/renew",
       operatorToken: validEnv.WORKLOAD_OPERATOR_BEARER_TOKEN,
       introspectionToken: validEnv.TOKEN_INTROSPECTION_BEARER_TOKEN,
+      renewalKey: expect.any(String),
       tokenTtlSeconds: 300,
       grantTtlSeconds: 300,
+      renewalTtlSeconds: 31_536_000,
+      renewalIdempotencyTtlSeconds: 120,
       dpopClockSkewSeconds: 60,
       rateLimitMax: 120,
     });

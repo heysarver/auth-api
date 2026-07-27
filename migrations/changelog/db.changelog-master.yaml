@@ -59,3 +59,23 @@ databaseChangeLog:
               DROP TABLE IF EXISTS auth.workload_tokens;
               DROP TABLE IF EXISTS auth.workload_grants;
               DROP TABLE IF EXISTS auth.workload_principals;
+
+  - changeSet:
+      id: auth-005
+      author: system
+      comment: Add opt-in rotating workload renewal credential state
+      changes:
+        - sqlFile:
+            path: changes/auth/005-add-workload-renewal-credentials.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: true
+            sql: |
+              DROP TABLE IF EXISTS auth.workload_renewal_idempotency;
+              DROP TABLE IF EXISTS auth.workload_renewal_credentials;
+              ALTER TABLE auth.workload_tokens DROP COLUMN IF EXISTS renewal_family_id;
+              DROP TABLE IF EXISTS auth.workload_renewal_families;
+              ALTER TABLE auth.workload_grants DROP COLUMN IF EXISTS renewable;

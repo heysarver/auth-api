@@ -114,9 +114,9 @@ All auth routes are at the **root path** (no `/api/auth/` prefix):
 - `POST /token/introspect` - Machine-authenticated bearer-token activity check
 - `POST /workload/principals/grants` - Operator-authorized principal creation or key-rotation grant
 - `POST /workload/token` - DPoP-bound grant exchange
-- `POST /workload/token/renew` - DPoP and `ath`-bound token renewal
+- `POST /workload/token/renew` - DPoP-bound rotating credential renewal
 - `POST /workload/token/introspect` - Machine-authenticated workload-token activity check
-- `POST /workload/revoke` - Operator revocation by token `jti` or workload `principal_id`
+- `POST /workload/revoke` - Operator revocation by token `jti`, workload `principal_id`, or `credential_family_id`
 
 ### Utility Routes
 
@@ -180,6 +180,7 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 | `WORKLOAD_OPERATOR_BEARER_TOKEN` | Secret-manager credential for grant and revocation operations | - |
 | `WORKLOAD_TOKEN_TTL_SECONDS` | Workload token lifetime, bounded to 60-900 seconds | 300 |
 | `WORKLOAD_GRANT_TTL_SECONDS` | Default one-time grant lifetime for operator calls that omit `expires_in`, bounded to 30-300 seconds | 300 |
+| `WORKLOAD_RENEWAL_TTL_SECONDS` | Rolling renewable credential lifetime, bounded to one hour through one year | 31536000 |
 | `WORKLOAD_DPOP_CLOCK_SKEW_SECONDS` | DPoP proof clock window, bounded to 5-60 seconds | 60 |
 | `WORKLOAD_RATE_LIMIT_MAX` | Per-minute workload-route request limit | 120 |
 | `GITHUB_CLIENT_ID` | GitHub OAuth client ID | - |
@@ -239,7 +240,9 @@ The principal flow is deliberately registrar-to-workload-client:
    thumbprint of the client-generated P-256 public key. Auth-api generates the
    opaque `principal_id`; callers cannot choose it. The trusted operator may
    include an integer `expires_in` from 60 through 86,400 seconds; omitting it
-   uses `WORKLOAD_GRANT_TTL_SECONDS`. Key rotation uses
+   uses `WORKLOAD_GRANT_TTL_SECONDS`. Supplying `renewable=true` opts the grant
+   into rotating credentials; omitted or false preserves the original response.
+   Key rotation uses
    `mode=rotate`, an existing `principal_id`, and the replacement thumbprint.
 2. Auth-api returns the `principal_id` and an opaque, short-lived grant once,
    storing only the grant's SHA-256 digest. Consumers own any mapping from that
@@ -248,24 +251,33 @@ The principal flow is deliberately registrar-to-workload-client:
    ES256 DPoP proof bound to the configured canonical endpoint URL. Grant
    consumption, proof replay storage, principal activation, and issued-`jti`
    persistence are transactional.
-4. Renewal uses `Authorization: DPoP <access-token>` plus a fresh DPoP proof
-   containing the access-token hash (`ath`). Renewal rotates and revokes the
-   prior `jti`.
+4. A renewable exchange adds `renewal_credential`,
+   `renewal_credential_expires_in`, `credential_family_id`, and
+   `renewal_generation`; non-renewable exchange responses are unchanged.
+5. Renewal sends `{ "renewal_credential": "..." }`, a fresh DPoP proof from
+   the enrolled key, and `Idempotency-Key`. It does not require a live access
+   token, so renewal remains possible after access-token expiry. Rotation is
+   serialized and invalidates the prior credential. The same credential and
+   request key replay the same replacement for two minutes; reuse with another
+   key revokes the family.
 
 Issued claims are exactly `iss`, the configured `aud`, principal UUID `sub`,
 `jti`, `iat`, `exp`, `token_use=workload`, and `cnf.jkt`. Tenant, resource,
 capability, or other consumer authorization data is never accepted, persisted,
 or signed. A browser cookie or human bearer token cannot mint a workload token.
 Proof validation uses exact configured `htu`, HTTP method, bounded `iat`, a
-single-use proof `jti`, ES256, a public-only P-256 JWK, and `ath` for renewal.
+single-use proof `jti`, ES256, and a public-only P-256 JWK.
 
 The existing `TOKEN_INTROSPECTION_BEARER_TOKEN` protects
 `POST /workload/token/introspect`. Positive results expose only verified token
 claims, and all workload introspection responses use `no-store` so revocation
 is visible immediately. `POST /workload/revoke`, protected by a distinct
-operator credential, soft-revokes one `jti` or an entire principal immediately.
-Raw grants, access tokens, DPoP proofs, and operator credentials must never be
-logged or stored.
+operator credential, soft-revokes one `jti`, one renewable credential family,
+or an entire principal immediately. Principal revocation also revokes all of
+its families. Raw grants, renewal credentials, access tokens, DPoP proofs, and
+operator credentials must never be logged or stored. Renewal credentials are
+derived with an HKDF-domain-separated key from `BETTER_AUTH_SECRET`; only their
+SHA-256 digests and the minimal two-minute replay metadata are persisted.
 The configured exchange and renewal URLs must use the issuer's public origin.
 
 DPoP replay tombstones are intentionally retained; auth-api does not delete
