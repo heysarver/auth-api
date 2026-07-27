@@ -81,8 +81,11 @@ migrations/
 │   ├── db.changelog-master.yaml  # Master changelog file
 │   └── changes/
 │       └── auth/                 # Auth schema migrations
-│           ├── 002-create-auth-tables.sql
-│           └── 003-create-jwks-table.sql
+│           ├── 001-create-auth-tables.sql
+│           ├── 002-create-jwks-table.sql
+│           ├── 003-add-user-disable-state.sql
+│           ├── 004-create-workload-identity-tables.sql
+│           └── 005-add-workload-renewal-credentials.sql
 └── README.md                     # This file
 ```
 
@@ -141,7 +144,9 @@ The Liquibase service reads these from your `.env` file:
 ## Best Practices
 
 1. **Never modify existing migrations** - Create new ones instead
-2. **Always include rollback commands** - Use `--rollback` comments in SQL files
+2. **Prefer safe rollback commands** - Use `--rollback` comments only when the
+   reversal cannot delete issued identity or credential history; otherwise use
+   a tested roll-forward repair
 3. **Test migrations locally first** - Use `updateSQL` to preview changes
 4. **Use descriptive changeset IDs** - Follow the `auth-XXX` pattern
 5. **Include comments** - Explain what the migration does and why

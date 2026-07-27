@@ -1,4 +1,5 @@
 import { WorkloadError } from "./workload-errors.js";
+import { hkdfSync } from "node:crypto";
 
 const MIN_SECRET_LENGTH = 32;
 
@@ -14,8 +15,11 @@ export interface EnabledWorkloadConfig {
   renewalEndpointUrl: string;
   operatorToken: string;
   introspectionToken: string;
+  renewalKey: string;
   tokenTtlSeconds: number;
   grantTtlSeconds: number;
+  renewalTtlSeconds: number;
+  renewalIdempotencyTtlSeconds: number;
   dpopClockSkewSeconds: number;
   rateLimitMax: number;
 }
@@ -102,6 +106,15 @@ export function loadWorkloadConfig(env: NodeJS.ProcessEnv = process.env): Worklo
   }
   const operatorToken = requiredSecret(env, "WORKLOAD_OPERATOR_BEARER_TOKEN");
   const introspectionToken = requiredSecret(env, "TOKEN_INTROSPECTION_BEARER_TOKEN");
+  const betterAuthSecret = requiredSecret(env, "BETTER_AUTH_SECRET");
+  // Isolate renewal credential derivation from every other use of the existing issuer secret.
+  const renewalKey = Buffer.from(hkdfSync(
+    "sha256",
+    betterAuthSecret,
+    Buffer.alloc(0),
+    "auth-api/workload-renewal/v1",
+    32,
+  )).toString("base64url");
   if (operatorToken === introspectionToken) {
     throw new WorkloadError("misconfigured", 503);
   }
@@ -114,8 +127,11 @@ export function loadWorkloadConfig(env: NodeJS.ProcessEnv = process.env): Worklo
     renewalEndpointUrl,
     operatorToken,
     introspectionToken,
+    renewalKey,
     tokenTtlSeconds: boundedInteger(env, "WORKLOAD_TOKEN_TTL_SECONDS", 300, 60, 900),
     grantTtlSeconds: boundedInteger(env, "WORKLOAD_GRANT_TTL_SECONDS", 300, 30, 300),
+    renewalTtlSeconds: boundedInteger(env, "WORKLOAD_RENEWAL_TTL_SECONDS", 31_536_000, 3_600, 31_536_000),
+    renewalIdempotencyTtlSeconds: 120,
     dpopClockSkewSeconds: boundedInteger(env, "WORKLOAD_DPOP_CLOCK_SKEW_SECONDS", 60, 5, 60),
     rateLimitMax: boundedInteger(env, "WORKLOAD_RATE_LIMIT_MAX", 120, 1, 10_000),
   };

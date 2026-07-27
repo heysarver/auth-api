@@ -9,6 +9,10 @@ const changelog = readFileSync(
   new URL("../../../migrations/changelog/db.changelog-master.yaml", import.meta.url),
   "utf8",
 );
+const renewalMigration = readFileSync(
+  new URL("../../../migrations/changelog/changes/auth/005-add-workload-renewal-credentials.sql", import.meta.url),
+  "utf8",
+);
 const workloadChangeSet = changelog.slice(changelog.indexOf("id: auth-004"));
 
 describe("generic workload principal migration", () => {
@@ -29,5 +33,25 @@ describe("generic workload principal migration", () => {
     expect(migration).toContain("PRIMARY KEY (cnf_jkt, proof_jti)");
     expect(migration).toContain("revoked_at TIMESTAMPTZ");
     expect(migration).not.toMatch(/worker_id|tenant_id|agent_id|enrollment_id/);
+  });
+});
+
+describe("renewable workload credential migration", () => {
+  it("is additive, opt-in, hashed, family-bound, and rollback-safe", () => {
+    expect(renewalMigration).toContain("ADD COLUMN IF NOT EXISTS renewable BOOLEAN NOT NULL DEFAULT FALSE");
+    expect(renewalMigration).toContain("auth.workload_renewal_families");
+    expect(renewalMigration).toContain("auth.workload_renewal_credentials");
+    expect(renewalMigration).toContain("secret_hash CHAR(64) NOT NULL UNIQUE");
+    expect(renewalMigration).toContain("renewal_family_id UUID REFERENCES");
+    expect(renewalMigration).not.toMatch(/raw_(credential|token|grant)|private_key|dpop_proof/i);
+    expect(changelog).toContain("id: auth-005");
+    expect(changelog).toContain("ALTER TABLE auth.workload_tokens DROP COLUMN IF EXISTS renewal_family_id");
+  });
+
+  it("persists only minimal two-minute replay reconstruction fields", () => {
+    expect(renewalMigration).toContain("request_key_hash CHAR(64) NOT NULL");
+    expect(renewalMigration).toContain("replacement_credential_id UUID NOT NULL");
+    expect(renewalMigration).toContain("access_token_jti UUID NOT NULL");
+    expect(renewalMigration).not.toContain("response_payload");
   });
 });

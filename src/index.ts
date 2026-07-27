@@ -198,12 +198,17 @@ if (workloadConfig.enabled) {
     standardHeaders: true,
     legacyHeaders: false,
   });
-  const workloadStore = createPostgresWorkloadStore(pool);
+  const workloadStore = createPostgresWorkloadStore(pool, {
+    renewalSecret: workloadConfig.renewalKey,
+    renewalTtlSeconds: workloadConfig.renewalTtlSeconds,
+    renewalIdempotencyTtlSeconds: workloadConfig.renewalIdempotencyTtlSeconds,
+  });
   const workloadTokens = createBetterAuthWorkloadTokenAdapter(auth.api, pool, workloadConfig);
   app.use(createWorkloadRouter({
     config: workloadConfig,
     store: workloadStore,
     issueToken: workloadTokens.issueToken,
+    signTokenClaims: workloadTokens.signTokenClaims,
     verifyToken: workloadTokens.verifyToken,
     limiter: workloadLimiter,
   }));

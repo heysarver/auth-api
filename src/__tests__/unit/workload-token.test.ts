@@ -15,8 +15,11 @@ const config: EnabledWorkloadConfig = {
   renewalEndpointUrl: "https://auth.example.test/workload/token/renew",
   operatorToken: "operator-credential-that-is-long-enough",
   introspectionToken: "introspection-credential-long-enough",
+  renewalKey: "renewal-key",
   tokenTtlSeconds: 300,
   grantTtlSeconds: 300,
+  renewalTtlSeconds: 31_536_000,
+  renewalIdempotencyTtlSeconds: 120,
   dpopClockSkewSeconds: 60,
   rateLimitMax: 120,
 };
