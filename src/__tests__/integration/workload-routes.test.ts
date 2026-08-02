@@ -3,6 +3,7 @@ import request from "supertest";
 import { randomUUID } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SignJWT, calculateJwkThumbprint, exportJWK, generateKeyPair, type JWK } from "jose";
+import type { RequestHandler } from "express";
 import type { EnabledWorkloadConfig } from "../../lib/workload-config.js";
 import { accessTokenHash } from "../../lib/workload-dpop.js";
 import { WorkloadError } from "../../lib/workload-errors.js";
@@ -90,7 +91,13 @@ function createStore(): WorkloadStore {
   };
 }
 
-function createHarness(store = createStore(), overrides: { verifyToken?: () => Promise<WorkloadTokenClaims | null> } = {}) {
+function createHarness(
+  store = createStore(),
+  overrides: {
+    limiter?: RequestHandler;
+    verifyToken?: () => Promise<WorkloadTokenClaims | null>;
+  } = {},
+) {
   const audit = vi.fn();
   const issueToken = vi.fn(async () => ({ token: accessToken, claims: { ...claims, cnf: { jkt } } }));
   const verifyToken = vi.fn(overrides.verifyToken ?? (async () => ({ ...claims, cnf: { jkt } })));
@@ -98,7 +105,15 @@ function createHarness(store = createStore(), overrides: { verifyToken?: () => P
   const app = express();
   app.use(express.json({ limit: "16kb" }));
   app.use(createWorkloadParseErrorHandler());
-  app.use(createWorkloadRouter({ config, store, issueToken, signTokenClaims, verifyToken, audit }));
+  app.use(createWorkloadRouter({
+    config,
+    store,
+    issueToken,
+    signTokenClaims,
+    verifyToken,
+    audit,
+    limiter: overrides.limiter,
+  }));
   app.use(createWorkloadParseErrorHandler());
   return { app, store, issueToken, audit };
 }
@@ -113,6 +128,17 @@ beforeAll(async () => {
 beforeEach(() => vi.restoreAllMocks());
 
 describe("generic workload principal routes", () => {
+  it("does not apply the workload limiter to browser session routes", async () => {
+    const limiter = vi.fn<RequestHandler>((_request, _response, next) => next());
+    const { app } = createHarness(createStore(), { limiter });
+
+    await request(app).get("/token").expect(404);
+    expect(limiter).not.toHaveBeenCalled();
+
+    await request(app).post("/workload/token").send({}).expect(400);
+    expect(limiter).toHaveBeenCalledTimes(1);
+  });
+
   it("creates an issuer-owned principal and one-time grant from only a key thumbprint", async () => {
     const { app, store } = createHarness();
     const body = { mode: "create", cnf_jkt: jkt };

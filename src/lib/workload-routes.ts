@@ -250,7 +250,9 @@ export function createWorkloadRouter(dependencies: WorkloadRouteDependencies): R
   const router = Router();
   const audit = dependencies.audit ?? defaultAudit;
   if (dependencies.limiter) {
-    router.use(dependencies.limiter);
+    // This router is mounted at the auth service root, so an unscoped limiter
+    // would also throttle browser session routes such as /token.
+    router.use("/workload", dependencies.limiter);
   }
 
   router.post("/workload/principals/grants", async (request, response) => {
