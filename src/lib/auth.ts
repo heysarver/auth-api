@@ -3,6 +3,7 @@ import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
 import { redis } from "./redis.js";
+import { betterAuthRateLimitCustomRules } from "./rate-limit-policy.js";
 import { createDisabledUserSessionGuard } from "./session-security.js";
 import { buildAdvancedCookieOptions } from "./cookie-config.js";
 
@@ -344,6 +345,7 @@ export const auth = betterAuth({
     enabled: true,
     window: 60, // seconds
     max: process.env.NODE_ENV === "production" ? 100 : 300, // requests per window
+    customRules: betterAuthRateLimitCustomRules,
   },
 
   // Trusted origins for CORS
