@@ -3,3 +3,7 @@
 export const betterAuthRateLimitCustomRules = {
   "/token": false,
 } as const;
+
+export function skipsSharedIpRateLimit(path: string): boolean {
+  return path === "/token";
+}
