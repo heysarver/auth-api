@@ -27,6 +27,7 @@ import { loadWorkloadConfig } from "./lib/workload-config.js";
 import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
 import { createPostgresWorkloadStore } from "./lib/workload-store.js";
 import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
+import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
 
 // Register Redis cleanup handlers for graceful shutdown
 registerCleanupHandlers();
@@ -148,6 +149,9 @@ const limiter = rateLimit({
   // Trust the first proxy (nginx ingress) for IP detection
   // This prevents the ERR_ERL_PERMISSIVE_TRUST_PROXY error
   validate: { trustProxy: false }, // Disable default validation since we set trust proxy globally
+  // Session refresh is already cookie-authenticated and Better Auth handles
+  // its policy. A shared ingress IP must never lock every browser out.
+  skip: (request) => skipsSharedIpRateLimit(request.path),
   store: new RedisStore({
     // @ts-expect-error - ioredis call() returns unknown, but RedisStore expects Promise<any>
     sendCommand: (...args: string[]) => redis.call(...args) as Promise<any>,
