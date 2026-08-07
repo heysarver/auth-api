@@ -7,16 +7,10 @@ import { redis } from "./redis.js";
 import { betterAuthRateLimitCustomRules } from "./rate-limit-policy.js";
 import { createDisabledUserSessionGuard } from "./session-security.js";
 import { buildAdvancedCookieOptions } from "./cookie-config.js";
+import { matchingVerifiedEmailAccountLinking } from "./account-linking-config.js";
+import { mapGoogleProfile, type GoogleProfile } from "./google-oauth-profile.js";
 
 // OAuth profile types for type-safe access
-interface GoogleProfile {
-  id: string;
-  name: string;
-  email: string;
-  picture: string;
-  verified_email: boolean;
-}
-
 interface GitHubProfile {
   id: number;
   name: string | null;
@@ -195,17 +189,7 @@ export const auth = betterAuth({
             },
           });
           const profile = await response.json() as GoogleProfile;
-          return {
-            user: {
-              id: profile.id,
-              name: profile.name,
-              email: profile.email,
-              image: profile.picture,
-              // Google returns verified_email: true for verified emails
-              emailVerified: profile.verified_email === true,
-            },
-            data: profile,
-          };
+          return mapGoogleProfile(profile);
         },
       },
     }),
@@ -332,6 +316,7 @@ export const auth = betterAuth({
   // Table name configuration - use plural for all tables
   account: {
     modelName: "accounts",
+    accountLinking: matchingVerifiedEmailAccountLinking,
   },
 
   verification: {
