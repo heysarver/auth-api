@@ -12,6 +12,8 @@ describe("lib/redis.ts", () => {
     vi.clearAllMocks();
     delete process.env.REDIS_URL;
     delete process.env.VALKEY_SENTINEL_HOST;
+    delete process.env.VALKEY_SENTINEL_PORT;
+    delete process.env.VALKEY_SENTINEL_MASTER_NAME;
   });
 
   afterEach(async () => {
@@ -166,6 +168,54 @@ describe("lib/redis.ts", () => {
 
       const config = (Redis as any).mock.calls[0][1];
       expect(config.maxRetriesPerRequest).toBe(3);
+    });
+
+    it("should initialize Redis with Sentinel configuration when configured", async () => {
+      process.env.VALKEY_SENTINEL_HOST = "sentinel.local";
+      process.env.VALKEY_SENTINEL_PORT = "26380";
+      process.env.VALKEY_SENTINEL_MASTER_NAME = "feedvalue-master";
+
+      vi.resetModules();
+      const Redis = (await import("ioredis")).default;
+
+      await import("../../lib/redis.js");
+
+      const sentinelConfig = (Redis as any).mock.calls[0][0];
+      expect(sentinelConfig).toEqual(
+        expect.objectContaining({
+          sentinels: [{ host: "sentinel.local", port: 26380 }],
+          name: "feedvalue-master",
+          maxRetriesPerRequest: 3,
+          retryStrategy: expect.any(Function),
+          reconnectOnError: expect.any(Function),
+          sentinelRetryStrategy: expect.any(Function),
+        })
+      );
+      expect(console.log).toHaveBeenCalledWith(
+        "📡 Using Valkey Sentinel mode: sentinel.local:26380 (master: feedvalue-master)"
+      );
+    });
+
+    it("should cap Sentinel retry delays and reconnect on READONLY failover errors", async () => {
+      process.env.VALKEY_SENTINEL_HOST = "sentinel.local";
+
+      vi.resetModules();
+      const Redis = (await import("ioredis")).default;
+
+      await import("../../lib/redis.js");
+
+      const sentinelConfig = (Redis as any).mock.calls[0][0];
+
+      expect(sentinelConfig.retryStrategy(1)).toBe(50);
+      expect(sentinelConfig.retryStrategy(99)).toBe(2000);
+      expect(sentinelConfig.sentinelRetryStrategy(1)).toBe(100);
+      expect(sentinelConfig.sentinelRetryStrategy(99)).toBe(3000);
+      expect(
+        sentinelConfig.reconnectOnError(
+          new Error("READONLY You can't write against a read only replica.")
+        )
+      ).toBe(true);
+      expect(sentinelConfig.reconnectOnError(new Error("ERR unknown"))).toBe(false);
     });
   });
 
@@ -404,6 +454,18 @@ describe("lib/redis.ts", () => {
       expect(processRemoveListenerSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
       expect(processRemoveListenerSpy).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
 
+      processRemoveListenerSpy.mockRestore();
+    });
+
+    it("should no-op when unregistering before handlers are registered", async () => {
+      vi.resetModules();
+
+      const processRemoveListenerSpy = vi.spyOn(process, "removeListener");
+      const { unregisterCleanupHandlers } = await import("../../lib/redis.js");
+
+      unregisterCleanupHandlers();
+
+      expect(processRemoveListenerSpy).not.toHaveBeenCalled();
       processRemoveListenerSpy.mockRestore();
     });
 

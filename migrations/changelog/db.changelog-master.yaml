@@ -10,7 +10,6 @@ databaseChangeLog:
             relativeToChangelogFile: true
             splitStatements: true
             stripComments: true
-
   - changeSet:
       id: auth-002
       author: system
@@ -21,3 +20,62 @@ databaseChangeLog:
             relativeToChangelogFile: true
             splitStatements: true
             stripComments: true
+
+  - changeSet:
+      id: auth-003
+      author: system
+      comment: Add durable administrative user disable state and revoke sessions on disable
+      changes:
+        - sqlFile:
+            path: changes/auth/003-add-user-disable-state.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: false
+            sql: |
+              DROP TRIGGER IF EXISTS reject_session_for_disabled_user ON auth.sessions;
+              DROP FUNCTION IF EXISTS auth.reject_session_for_disabled_user();
+              DROP TRIGGER IF EXISTS revoke_sessions_when_user_disabled ON auth.users;
+              DROP FUNCTION IF EXISTS auth.revoke_sessions_when_user_disabled();
+              ALTER TABLE auth.users DROP COLUMN IF EXISTS disabled;
+
+  - changeSet:
+      id: auth-004
+      author: system
+      comment: Add generic workload principal, token, and DPoP replay state
+      changes:
+        - sqlFile:
+            path: changes/auth/004-create-workload-identity-tables.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: true
+            sql: |
+              DROP TABLE IF EXISTS auth.workload_dpop_replays;
+              DROP TABLE IF EXISTS auth.workload_tokens;
+              DROP TABLE IF EXISTS auth.workload_grants;
+              DROP TABLE IF EXISTS auth.workload_principals;
+
+  - changeSet:
+      id: auth-005
+      author: system
+      comment: Add opt-in rotating workload renewal credential state
+      changes:
+        - sqlFile:
+            path: changes/auth/005-add-workload-renewal-credentials.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: true
+            sql: |
+              DROP TABLE IF EXISTS auth.workload_renewal_idempotency;
+              DROP TABLE IF EXISTS auth.workload_renewal_credentials;
+              ALTER TABLE auth.workload_tokens DROP COLUMN IF EXISTS renewal_family_id;
+              DROP TABLE IF EXISTS auth.workload_renewal_families;
+              ALTER TABLE auth.workload_grants DROP COLUMN IF EXISTS renewable;

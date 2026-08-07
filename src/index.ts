@@ -16,6 +16,18 @@ import { toNodeHandler } from "better-auth/node";
 import { auth, pool } from "./lib/auth.js";
 import { redis, registerCleanupHandlers } from "./lib/redis.js";
 import { validateTurnstileToken } from "./middleware/turnstile.js";
+import {
+  createPostgresSessionActivityChecker,
+  createBetterAuthJwtVerifier,
+  createTokenIntrospectionParseErrorHandler,
+  createTokenIntrospectionHandler,
+  tokenIntrospectionRateLimitHandler,
+} from "./lib/token-introspection.js";
+import { loadWorkloadConfig } from "./lib/workload-config.js";
+import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
+import { createPostgresWorkloadStore } from "./lib/workload-store.js";
+import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
+import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
 
 // Register Redis cleanup handlers for graceful shutdown
 registerCleanupHandlers();
@@ -74,6 +86,9 @@ app.use(cors({
 // Explicit size limits prevent memory exhaustion attacks
 app.use(express.json({ limit: "16kb" }));
 app.use(express.urlencoded({ extended: true, limit: "16kb" }));
+// Keep malformed introspection bodies and bearer values out of generic error logs.
+app.use(createTokenIntrospectionParseErrorHandler());
+app.use(createWorkloadParseErrorHandler());
 
 // Health check caching to reduce database load
 let lastHealthCheck = 0;
@@ -134,6 +149,9 @@ const limiter = rateLimit({
   // Trust the first proxy (nginx ingress) for IP detection
   // This prevents the ERR_ERL_PERMISSIVE_TRUST_PROXY error
   validate: { trustProxy: false }, // Disable default validation since we set trust proxy globally
+  // Session refresh is already cookie-authenticated and Better Auth handles
+  // its policy. A shared ingress IP must never lock every browser out.
+  skip: (request) => skipsSharedIpRateLimit(request.path),
   store: new RedisStore({
     // @ts-expect-error - ioredis call() returns unknown, but RedisStore expects Promise<any>
     sendCommand: (...args: string[]) => redis.call(...args) as Promise<any>,
@@ -144,11 +162,67 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+const introspectionLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.TOKEN_INTROSPECTION_RATE_LIMIT_MAX) || 120,
+  handler: tokenIntrospectionRateLimitHandler,
+  validate: { trustProxy: false },
+  store: new RedisStore({
+    // @ts-expect-error - ioredis call() returns unknown, but RedisStore expects Promise<any>
+    sendCommand: (...args: string[]) => redis.call(...args) as Promise<any>,
+    prefix: "auth:ratelimit:introspection:",
+  }),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.post(
+  "/token/introspect",
+  introspectionLimiter,
+  createTokenIntrospectionHandler({
+    machineToken: process.env.TOKEN_INTROSPECTION_BEARER_TOKEN,
+    clientId: process.env.TOKEN_INTROSPECTION_CLIENT_ID || "token-introspection-client",
+    verifyToken: createBetterAuthJwtVerifier(auth.api),
+    isSessionActive: createPostgresSessionActivityChecker(pool),
+  }),
+);
+
+const workloadConfig = loadWorkloadConfig();
+if (workloadConfig.enabled) {
+  const workloadLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: workloadConfig.rateLimitMax,
+    handler: tokenIntrospectionRateLimitHandler,
+    validate: { trustProxy: false },
+    store: new RedisStore({
+      // @ts-expect-error - ioredis call() returns unknown, but RedisStore uses a looser command return type.
+      sendCommand: (...args: string[]) => redis.call(...args) as Promise<unknown>,
+      prefix: "auth:ratelimit:workload:",
+    }),
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  const workloadStore = createPostgresWorkloadStore(pool, {
+    renewalSecret: workloadConfig.renewalKey,
+    renewalTtlSeconds: workloadConfig.renewalTtlSeconds,
+    renewalIdempotencyTtlSeconds: workloadConfig.renewalIdempotencyTtlSeconds,
+  });
+  const workloadTokens = createBetterAuthWorkloadTokenAdapter(auth.api, pool, workloadConfig);
+  app.use(createWorkloadRouter({
+    config: workloadConfig,
+    store: workloadStore,
+    issueToken: workloadTokens.issueToken,
+    signTokenClaims: workloadTokens.signTokenClaims,
+    verifyToken: workloadTokens.verifyToken,
+    limiter: workloadLimiter,
+  }));
+}
+
 // Turnstile verification middleware (after /health, before Better Auth)
 // Subdomain routing: auth is on auth.domain.com with root paths
 // IMPORTANT: Excludes authenticated endpoints from Turnstile verification
 // These endpoints require session cookies, not Turnstile tokens
-const excludedPaths = ["/health", "/token", "/get-session", "/jwks"];
+const excludedPaths = ["/health", "/token", "/token/introspect", "/get-session", "/jwks"];
 app.use((req, res, next) => {
   if (excludedPaths.includes(req.path)) {
     return next();
@@ -159,6 +233,10 @@ app.use((req, res, next) => {
 // Better Auth handler (Express v5 uses /*splat syntax for catch-all routes)
 // Subdomain routing: all auth endpoints at root (not /api/auth/*)
 app.all("/*splat", toNodeHandler(auth));
+
+// Defense in depth: keep parser failures redacted before the generic logger.
+app.use(createTokenIntrospectionParseErrorHandler());
+app.use(createWorkloadParseErrorHandler());
 
 // 404 handler
 app.use((req, res) => {
@@ -190,6 +268,6 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Auth API server running on http://localhost:${PORT}`);
-  console.log(`📝 Auth endpoints available at http://localhost:${PORT}/api/auth/*`);
+  console.log(`📝 Auth endpoints available at http://localhost:${PORT}/*`);
   console.log(`🏥 Health check at http://localhost:${PORT}/health`);
 });

@@ -112,6 +112,7 @@ describe("lib/cache.ts", () => {
     mockSpan.recordException.mockClear();
     mockSpan.end.mockClear();
     mockCounterAdd.mockClear();
+    mockAddCallback.mockClear();
   });
 
   describe("CacheService constructor", () => {
@@ -135,6 +136,23 @@ describe("lib/cache.ts", () => {
     it("should register observable gauge callback", () => {
       new CacheService();
       expect(mockAddCallback).toHaveBeenCalled();
+    });
+
+    it("should observe hit rate from the gauge callback", async () => {
+      const service = new CacheService("metrics:");
+      const observe = vi.fn();
+      const callback = mockAddCallback.mock.calls.at(-1)?.[0];
+      mockGet
+        .mockResolvedValueOnce(JSON.stringify({ value: 1 }))
+        .mockResolvedValueOnce(null);
+
+      await service.get("hit");
+      await service.get("miss");
+      callback?.({ observe });
+
+      expect(observe).toHaveBeenCalledWith(0.5, {
+        "cache.key_prefix": "metrics:",
+      });
     });
   });
 
@@ -298,6 +316,37 @@ describe("lib/cache.ts", () => {
       expect(mockSet).toHaveBeenCalledWith("auth:key", expect.any(String));
       expect(mockSet.mock.calls[0].length).toBe(2);
     });
+
+    it("should record and rethrow Redis set errors", async () => {
+      const service = new CacheService();
+      const error = new Error("set failed");
+      mockSet.mockRejectedValue(error);
+
+      await expect(service.set("key", { value: 1 }, 60)).rejects.toThrow("set failed");
+
+      expect(mockSpan.setStatus).toHaveBeenCalledWith({
+        code: 2,
+        message: "set failed",
+      });
+      expect(mockSpan.recordException).toHaveBeenCalledWith(error);
+      expect(mockCounterAdd).toHaveBeenCalledWith(1, {
+        operation: "set",
+        status: "error",
+        "cache.key_prefix": "auth:",
+      });
+    });
+
+    it("should report unknown Redis set errors", async () => {
+      const service = new CacheService();
+      mockSet.mockRejectedValue("set failed");
+
+      await expect(service.set("key", { value: 1 })).rejects.toBe("set failed");
+
+      expect(mockSpan.setStatus).toHaveBeenCalledWith({
+        code: 2,
+        message: "Unknown error",
+      });
+    });
   });
 
   describe("metrics tracking", () => {
@@ -442,6 +491,38 @@ describe("lib/cache.ts", () => {
         100
       );
     });
+
+    it("should record and rethrow scan errors with the deleted count so far", async () => {
+      const service = new CacheService();
+      const error = new Error("scan failed");
+      mockScan
+        .mockResolvedValueOnce(["5", ["auth:user:1", "auth:user:2"]])
+        .mockRejectedValueOnce(error);
+      mockDel.mockResolvedValue(2);
+
+      await expect(service.deleteByPattern("user:*")).rejects.toThrow("scan failed");
+
+      expect(mockDel).toHaveBeenCalledWith("auth:user:1", "auth:user:2");
+      expect(mockSpan.setAttribute).toHaveBeenCalledWith("cache.key_count", 2);
+      expect(mockCounterAdd).toHaveBeenCalledWith(1, {
+        operation: "deleteByPattern",
+        status: "error",
+        "cache.key_prefix": "auth:",
+      });
+      expect(mockSpan.recordException).toHaveBeenCalledWith(error);
+    });
+
+    it("should report unknown scan errors", async () => {
+      const service = new CacheService();
+      mockScan.mockRejectedValue("scan failed");
+
+      await expect(service.deleteByPattern("user:*")).rejects.toBe("scan failed");
+
+      expect(mockSpan.setStatus).toHaveBeenCalledWith({
+        code: 2,
+        message: "Unknown error",
+      });
+    });
   });
 
   describe("singleton export", () => {
@@ -470,6 +551,37 @@ describe("lib/cache.ts", () => {
       await service.delete("session:123");
 
       expect(mockDel).toHaveBeenCalledWith("app:session:123");
+    });
+
+    it("should record and rethrow Redis delete errors", async () => {
+      const service = new CacheService("app:");
+      const error = new Error("delete failed");
+      mockDel.mockRejectedValue(error);
+
+      await expect(service.delete("session:123")).rejects.toThrow("delete failed");
+
+      expect(mockSpan.setStatus).toHaveBeenCalledWith({
+        code: 2,
+        message: "delete failed",
+      });
+      expect(mockSpan.recordException).toHaveBeenCalledWith(error);
+      expect(mockCounterAdd).toHaveBeenCalledWith(1, {
+        operation: "delete",
+        status: "error",
+        "cache.key_prefix": "app:",
+      });
+    });
+
+    it("should record unknown delete errors", async () => {
+      const service = new CacheService();
+      mockDel.mockRejectedValue("delete failed");
+
+      await expect(service.delete("key")).rejects.toBe("delete failed");
+
+      expect(mockSpan.setStatus).toHaveBeenCalledWith({
+        code: 2,
+        message: "Unknown error",
+      });
     });
   });
 

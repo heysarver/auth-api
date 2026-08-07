@@ -4,6 +4,9 @@ import { Pool } from "pg";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
 import { resolveGoogleRedirectURI } from "./oauth-config.js";
 import { redis } from "./redis.js";
+import { betterAuthRateLimitCustomRules } from "./rate-limit-policy.js";
+import { createDisabledUserSessionGuard } from "./session-security.js";
+import { buildAdvancedCookieOptions } from "./cookie-config.js";
 
 // OAuth profile types for type-safe access
 interface GoogleProfile {
@@ -59,6 +62,18 @@ pool.on("connect", (client) => {
   });
 });
 
+function buildWebhookHeaders(): Record<string, string> {
+  const webhookSecret = process.env.AUTH_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new Error("AUTH_WEBHOOK_SECRET or WEBHOOK_SECRET is required for webhook delivery");
+  }
+
+  return {
+    'Content-Type': 'application/json',
+    'x-webhook-secret': webhookSecret,
+  };
+}
+
 export const auth = betterAuth({
   database: pool,
 
@@ -104,8 +119,10 @@ export const auth = betterAuth({
       },
       jwt: {
         issuer: process.env.BETTER_AUTH_URL || "http://localhost:3002",
-        audience: process.env.BETTER_AUTH_URL || "http://localhost:3002",
+        audience: process.env.JWT_AUDIENCE || process.env.BETTER_AUTH_URL || "http://localhost:3002",
         expirationTime: "24h",
+        // Bind every bearer JWT to its durable Better Auth session revision.
+        definePayload: ({ session }) => ({ jti: session.id }),
       },
     }),
   ],
@@ -114,6 +131,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
+    revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url, token }) => {
       await sendPasswordResetEmail(user.email, url, token);
     },
@@ -137,7 +155,7 @@ export const auth = betterAuth({
         try {
           const response = await fetch(webhookUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: buildWebhookHeaders(),
             body: JSON.stringify({
               event: 'user.email_verified',
               user: {
@@ -283,6 +301,8 @@ export const auth = betterAuth({
   // Session configuration with plural table name
   session: {
     modelName: "sessions",
+    // PostgreSQL is the durable revocation authority; Redis remains secondary storage.
+    storeSessionInDatabase: true,
     expiresIn: Number(process.env.SESSION_EXPIRES_IN) || 86400, // 24 hours
     updateAge: Number(process.env.SESSION_UPDATE_AGE) || 3600, // 1 hour
     cookieCache: {
@@ -299,6 +319,13 @@ export const auth = betterAuth({
         type: "string",
         required: false,
       },
+      disabled: {
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        input: false,
+        returned: false,
+      },
     },
   },
 
@@ -312,30 +339,7 @@ export const auth = betterAuth({
   },
 
   // Advanced configuration
-  advanced: {
-    cookiePrefix: process.env.COOKIE_PREFIX || "auth",
-    useSecureCookies: process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging",
-    // Cross-subdomain cookie configuration
-    // Based on working examples: https://github.com/better-auth/better-auth/discussions/5670
-    crossSubDomainCookies: {
-      enabled: !!process.env.COOKIE_DOMAIN,
-      // CRITICAL: Leading dot required for cross-subdomain cookies
-      domain: process.env.COOKIE_DOMAIN ? `.${process.env.COOKIE_DOMAIN}` : undefined,
-    },
-    // Default cookie attributes for cross-subdomain routing
-    defaultCookieAttributes: {
-      sameSite: process.env.NODE_ENV === "development" ? "lax" : "none", // "none" required for cross-domain OAuth
-      // CRITICAL: secure must be false in development (HTTP) for cookies to work
-      // In staging/production (HTTPS), secure must be true
-      secure: process.env.NODE_ENV !== "development",
-      httpOnly: true,
-      partitioned: false, // Prevent browsers from blocking partitioned cookies
-      domain: process.env.COOKIE_DOMAIN
-        ? undefined  // crossSubDomainCookies handles this
-        : undefined, // Let browser scope cookie to exact request domain
-      path: "/",
-    },
-  },
+  advanced: buildAdvancedCookieOptions(process.env),
 
   // Rate limiting
   // Environment-specific limits: dev/staging more lenient, production stricter
@@ -343,6 +347,7 @@ export const auth = betterAuth({
     enabled: true,
     window: 60, // seconds
     max: process.env.NODE_ENV === "production" ? 100 : 300, // requests per window
+    customRules: betterAuthRateLimitCustomRules,
   },
 
   // Trusted origins for CORS
@@ -367,7 +372,7 @@ export const auth = betterAuth({
               console.log(`🔔 Firing webhook for new user: ${user.email} (${event})`);
               const response = await fetch(webhookUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: buildWebhookHeaders(),
                 body: JSON.stringify({
                   event,
                   user: {
@@ -389,6 +394,11 @@ export const auth = betterAuth({
             }
           }
         },
+      },
+    },
+    session: {
+      create: {
+        before: createDisabledUserSessionGuard(pool),
       },
     },
   },

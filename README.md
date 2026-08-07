@@ -111,6 +111,12 @@ All auth routes are at the **root path** (no `/api/auth/` prefix):
 - `GET /github` - GitHub OAuth flow
 - `GET /callback/github` - GitHub OAuth callback
 - `GET /jwks` - JWKS endpoint for JWT validation
+- `POST /token/introspect` - Machine-authenticated bearer-token activity check
+- `POST /workload/principals/grants` - Operator-authorized principal creation or key-rotation grant
+- `POST /workload/token` - DPoP-bound grant exchange
+- `POST /workload/token/renew` - DPoP-bound rotating credential renewal
+- `POST /workload/token/introspect` - Machine-authenticated workload-token activity check
+- `POST /workload/revoke` - Operator revocation by token `jti`, workload `principal_id`, or `credential_family_id`
 
 ### Utility Routes
 
@@ -163,12 +169,128 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 | `DATABASE_URL` | PostgreSQL connection string | - |
 | `BETTER_AUTH_SECRET` | Secret for JWT signing (min 32 chars) | - |
 | `BETTER_AUTH_URL` | Base URL for auth (subdomain: auth.domain.com) | http://localhost:3002 |
+| `JWT_AUDIENCE` | Exact JWT audience required by relying services | BETTER_AUTH_URL |
+| `TOKEN_INTROSPECTION_CLIENT_ID` | Non-secret audit label for the machine client | token-introspection-client |
+| `TOKEN_INTROSPECTION_BEARER_TOKEN` | Secret-manager-provisioned credential for `/token/introspect` | - |
+| `TOKEN_INTROSPECTION_RATE_LIMIT_MAX` | Per-minute introspection request limit | 120 |
+| `WORKLOAD_IDENTITY_ENABLED` | Explicitly enable workload identity routes | false |
+| `WORKLOAD_JWT_AUDIENCE` | Required workload audience, separate from `JWT_AUDIENCE` | - |
+| `WORKLOAD_TOKEN_ENDPOINT_URL` | Canonical public DPoP `htu` for initial exchange | - |
+| `WORKLOAD_RENEWAL_ENDPOINT_URL` | Canonical public DPoP `htu` for renewal | - |
+| `WORKLOAD_OPERATOR_BEARER_TOKEN` | Secret-manager credential for grant and revocation operations | - |
+| `WORKLOAD_TOKEN_TTL_SECONDS` | Workload token lifetime, bounded to 60-900 seconds | 300 |
+| `WORKLOAD_GRANT_TTL_SECONDS` | Default one-time grant lifetime for operator calls that omit `expires_in`, bounded to 30-300 seconds | 300 |
+| `WORKLOAD_RENEWAL_TTL_SECONDS` | Rolling renewable credential lifetime, bounded to one hour through one year | 31536000 |
+| `WORKLOAD_DPOP_CLOCK_SKEW_SECONDS` | DPoP proof clock window, bounded to 5-60 seconds | 60 |
+| `WORKLOAD_RATE_LIMIT_MAX` | Per-minute workload-route request limit | 120 |
 | `GITHUB_CLIENT_ID` | GitHub OAuth client ID | - |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth client secret | - |
 | `FRONTEND_URL` | Frontend URL for CORS (domain.com) | http://localhost:5173 |
 | `API_URL` | Core API URL for CORS (api.domain.com) | http://localhost:3001 |
 | `SESSION_EXPIRES_IN` | Session duration in seconds | 86400 |
 | `SESSION_UPDATE_AGE` | Session refresh interval | 3600 |
+
+### Token introspection
+
+The introspection URL is the configured issuer with the root path appended:
+
+```text
+POST <BETTER_AUTH_URL without a trailing slash>/token/introspect
+```
+
+Do not use `/api/auth/token/introspect` or append the route to the JWKS URL. The
+machine client sends its dedicated, externally provisioned credential as
+`Authorization: Bearer <TOKEN_INTROSPECTION_BEARER_TOKEN>` and JSON body
+`{"token":"<original bearer JWT>"}`. Configure each relying service's expected
+audience to exactly match `JWT_AUDIENCE`. Generate a random machine credential
+of at least 32 characters and provision the same value to auth-api and the
+authorized machine client through their secret managers.
+
+Bearer JWTs use the PostgreSQL Better Auth session ID as `jti`. PostgreSQL is
+the durable activity authority while Redis remains secondary session storage.
+Sign-out, explicit session revocation, and password reset remove affected
+session records. Setting `auth.users.disabled = TRUE` also deletes that user's
+sessions through a database trigger, while application and database guards
+reject new sessions until the user is re-enabled. Later re-enablement therefore
+cannot reactivate old tokens. Revoked rows are deleted; active rows remain until
+their configured session expiry. Positive introspection responses may be cached
+for at most 30 seconds; inactive and error responses are non-cacheable.
+
+Rollout is fail-closed: JWTs issued before this feature lack a session `jti`,
+and Redis-only sessions are not backfilled into PostgreSQL. Users must
+reauthenticate to obtain an introspectable bearer token after deployment.
+
+### Workload identity
+
+Workload identity is an opt-in, consumer-neutral issuer profile. It reuses the
+same Better Auth RS256 signing keys and `/jwks` publication as human JWTs, but
+uses a separate required audience, short lifetime, PostgreSQL activity state,
+and `token_use=workload`. Deployments must configure a consumer-specific
+audience; the repository does not hard-code a downstream system or audience.
+
+`createBetterAuthWorkloadTokenAdapter` is the temporary compatibility boundary
+for Better Auth 1.6.x. It supplies the missing workload claim and verification
+profile while keeping route dependencies stable for a later native Better Auth
+replacement after the 1.7 feature set reaches a stable release.
+
+The principal flow is deliberately registrar-to-workload-client:
+
+1. The registrar requests principal creation through
+   `POST /workload/principals/grants` with `mode=create` and the RFC 7638
+   thumbprint of the client-generated P-256 public key. Auth-api generates the
+   opaque `principal_id`; callers cannot choose it. The trusted operator may
+   include an integer `expires_in` from 60 through 86,400 seconds; omitting it
+   uses `WORKLOAD_GRANT_TTL_SECONDS`. Supplying `renewable=true` opts the grant
+   into rotating credentials; omitted or false preserves the original response.
+   Key rotation uses
+   `mode=rotate`, an existing `principal_id`, and the replacement thumbprint.
+2. Auth-api returns the `principal_id` and an opaque, short-lived grant once,
+   storing only the grant's SHA-256 digest. Consumers own any mapping from that
+   principal to their authorization or resource model.
+3. The workload client exchanges that grant at `POST /workload/token` with an
+   ES256 DPoP proof bound to the configured canonical endpoint URL. Grant
+   consumption, proof replay storage, principal activation, and issued-`jti`
+   persistence are transactional.
+4. A renewable exchange adds `renewal_credential`,
+   `renewal_credential_expires_in`, `credential_family_id`, and
+   `renewal_generation`; non-renewable exchange responses are unchanged.
+5. Renewal sends `{ "renewal_credential": "..." }`, a fresh DPoP proof from
+   the enrolled key, and `Idempotency-Key`. It does not require a live access
+   token, so renewal remains possible after access-token expiry. Rotation is
+   serialized and invalidates the prior credential. The same credential and
+   request key replay the same replacement for two minutes; reuse with another
+   key revokes the family.
+
+Existing non-renewable clients may continue the original empty-body
+`Authorization: DPoP <access-token>` renewal with an `ath`-bound proof. The
+renewable credential branch is additive and does not remove that contract.
+
+Issued claims are exactly `iss`, the configured `aud`, principal UUID `sub`,
+`jti`, `iat`, `exp`, `token_use=workload`, and `cnf.jkt`. Tenant, resource,
+capability, or other consumer authorization data is never accepted, persisted,
+or signed. A browser cookie or human bearer token cannot mint a workload token.
+Proof validation uses exact configured `htu`, HTTP method, bounded `iat`, a
+single-use proof `jti`, ES256, and a public-only P-256 JWK.
+
+The existing `TOKEN_INTROSPECTION_BEARER_TOKEN` protects
+`POST /workload/token/introspect`. Positive results expose only verified token
+claims, and all workload introspection responses use `no-store` so revocation
+is visible immediately. `POST /workload/revoke`, protected by a distinct
+operator credential, soft-revokes one `jti`, one renewable credential family,
+or an entire principal immediately. Principal revocation also revokes all of
+its families. Raw grants, renewal credentials, access tokens, DPoP proofs, and
+operator credentials must never be logged or stored. Renewal credentials are
+derived with an HKDF-domain-separated key from `BETTER_AUTH_SECRET`; only their
+SHA-256 digests and the minimal two-minute replay metadata are persisted.
+The configured exchange and renewal URLs must use the issuer's public origin.
+
+DPoP replay tombstones are intentionally retained; auth-api does not delete
+production records automatically. Operators must monitor the expiry index and
+perform separately authorized retention maintenance for expired tombstones.
+
+mTLS is not part of this profile. If later enabled, it requires an
+operator-managed CA and a distinct `cnf["x5t#S256"]` contract with no downgrade
+from a configured binding.
 
 ## 🧪 Testing
 
