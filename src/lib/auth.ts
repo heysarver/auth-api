@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
+import { resolveGoogleRedirectURI } from "./oauth-config.js";
 import { redis } from "./redis.js";
 import { betterAuthRateLimitCustomRules } from "./rate-limit-policy.js";
 import { createDisabledUserSessionGuard } from "./session-security.js";
@@ -185,6 +186,7 @@ export const auth = betterAuth({
       google: {
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        redirectURI: resolveGoogleRedirectURI(),
         // Custom getUserInfo to properly map Google's email_verified claim
         getUserInfo: async (token) => {
           const response = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
