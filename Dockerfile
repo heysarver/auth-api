@@ -22,9 +22,6 @@ RUN npm run build
 # Stage 2: Production
 FROM node:${NODE_VERSION} AS production
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
-
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
@@ -51,8 +48,9 @@ EXPOSE 3002
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3002/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Use dumb-init to handle signals properly
-ENTRYPOINT ["dumb-init", "--"]
+# Node remains PID 1 and receives Kubernetes SIGTERM directly. The service
+# registers SIGTERM handlers for telemetry, Redis, and database cleanup.
+STOPSIGNAL SIGTERM
 
 # Start production server with OTEL instrumentation
 CMD ["node", "--import", "./dist/instrumentation.js", "dist/index.js"]
