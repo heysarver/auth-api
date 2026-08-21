@@ -3,13 +3,9 @@
 
 FROM liquibase/liquibase:4.30-alpine
 
-# Switch to root to install packages
-USER root
-
-# Install PostgreSQL client for schema creation
-RUN apk add --no-cache postgresql-client
-
-# Switch back to liquibase user
+# Liquibase includes the PostgreSQL JDBC driver used by the entrypoint for
+# readiness checks, schema creation, and migrations. Avoid an extra apk fetch
+# so this image remains deterministic when Alpine mirrors are unavailable.
 USER liquibase
 
 # Set working directory
