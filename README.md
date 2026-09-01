@@ -167,6 +167,7 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 | `PORT` | Server port | 3002 |
 | `NODE_ENV` | Environment | development |
 | `DATABASE_URL` | PostgreSQL connection string | - |
+| `POSTGRES_POOL_MAX` | Maximum PostgreSQL connections per auth-api replica (1-20) | `20` |
 | `BETTER_AUTH_SECRET` | Secret for JWT signing (min 32 chars) | - |
 | `BETTER_AUTH_URL` | Base URL for auth (subdomain: auth.domain.com) | http://localhost:3002 |
 | `JWT_AUDIENCE` | Exact JWT audience required by relying services | BETTER_AUTH_URL |
