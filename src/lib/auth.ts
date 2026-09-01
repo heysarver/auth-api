@@ -36,7 +36,7 @@ if (!databaseUrl) {
 
 export const pool = new Pool({
   connectionString: databaseUrl,
-  max: postgresPoolMaximum(process.env.POSTGRES_POOL_MAX),
+  max: postgresPoolMaximum(process.env.POSTGRES_POOL_MAX, process.env.NODE_ENV),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
   // CRITICAL: Set search_path for Better Auth to find tables in auth schema
