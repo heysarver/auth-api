@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
+import { postgresPoolMaximum } from "./database-config.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
 import { resolveGoogleRedirectURI } from "./oauth-config.js";
 import { redis } from "./redis.js";
@@ -35,7 +36,7 @@ if (!databaseUrl) {
 
 export const pool = new Pool({
   connectionString: databaseUrl,
-  max: 20,
+  max: postgresPoolMaximum(process.env.POSTGRES_POOL_MAX),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
   // CRITICAL: Set search_path for Better Auth to find tables in auth schema
