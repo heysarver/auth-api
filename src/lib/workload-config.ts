@@ -93,14 +93,25 @@ export function loadWorkloadConfig(env: NodeJS.ProcessEnv = process.env): Worklo
   if (audience === humanAudience) {
     throw new WorkloadError("misconfigured", 503);
   }
-  const tokenEndpointUrl = canonicalUrl(requiredValue(env, "WORKLOAD_TOKEN_ENDPOINT_URL"), "/workload/token");
+  const gatewayOriginValue = env.WORKLOAD_GATEWAY_ORIGIN?.trim();
+  const endpointOrigin = gatewayOriginValue
+    ? canonicalUrl(gatewayOriginValue, "/")
+    : `${new URL(issuer).origin}/`;
+  const tokenEndpointPath = gatewayOriginValue ? "/auth/workload/token" : "/workload/token";
+  const renewalEndpointPath = gatewayOriginValue
+    ? "/auth/workload/token/renew"
+    : "/workload/token/renew";
+  const tokenEndpointUrl = canonicalUrl(
+    requiredValue(env, "WORKLOAD_TOKEN_ENDPOINT_URL"),
+    tokenEndpointPath,
+  );
   const renewalEndpointUrl = canonicalUrl(
     requiredValue(env, "WORKLOAD_RENEWAL_ENDPOINT_URL"),
-    "/workload/token/renew",
+    renewalEndpointPath,
   );
   if (
-    new URL(tokenEndpointUrl).origin !== new URL(issuer).origin ||
-    new URL(renewalEndpointUrl).origin !== new URL(issuer).origin
+    new URL(tokenEndpointUrl).origin !== new URL(endpointOrigin).origin ||
+    new URL(renewalEndpointUrl).origin !== new URL(endpointOrigin).origin
   ) {
     throw new WorkloadError("misconfigured", 503);
   }

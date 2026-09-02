@@ -39,7 +39,7 @@ describe("lib/redis.ts", () => {
     });
 
     it("should initialize Redis with custom URL from environment", async () => {
-      process.env.REDIS_URL = "redis://custom-host:6380/5";
+      process.env.REDIS_URL = "redis://user:do-not-log-this@custom-host:6380/5";
 
       vi.resetModules();
       const Redis = (await import("ioredis")).default;
@@ -47,9 +47,11 @@ describe("lib/redis.ts", () => {
       await import("../../lib/redis.js");
 
       expect(Redis).toHaveBeenCalledWith(
-        "redis://custom-host:6380/5",
+        "redis://user:do-not-log-this@custom-host:6380/5",
         expect.any(Object)
       );
+      expect(console.log).toHaveBeenCalledWith("📡 Using Valkey standalone mode");
+      expect(JSON.stringify((console.log as any).mock.calls)).not.toContain("do-not-log-this");
     });
 
     it("should register event handlers", async () => {
