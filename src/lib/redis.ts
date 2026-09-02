@@ -100,7 +100,7 @@ export const redis = sentinelHost
 if (sentinelHost) {
   logger.info(`📡 Using Valkey Sentinel mode: ${sentinelHost}:${sentinelPort} (master: ${sentinelMasterName})`);
 } else {
-  logger.info(`📡 Using Valkey standalone mode: ${redisUrl}`);
+  logger.info("📡 Using Valkey standalone mode");
 }
 
 redis.on("connect", () => {

@@ -36,6 +36,22 @@ describe("workload configuration", () => {
     });
   });
 
+  it("allows an explicit private gateway origin for DPoP endpoint binding", () => {
+    const config = loadWorkloadConfig({
+      ...validEnv,
+      WORKLOAD_GATEWAY_ORIGIN: "https://gateway.example.test",
+      WORKLOAD_TOKEN_ENDPOINT_URL: "https://gateway.example.test/auth/workload/token",
+      WORKLOAD_RENEWAL_ENDPOINT_URL: "https://gateway.example.test/auth/workload/token/renew",
+    });
+
+    expect(config.enabled && config.tokenEndpointUrl).toBe(
+      "https://gateway.example.test/auth/workload/token",
+    );
+    expect(config.enabled && config.renewalEndpointUrl).toBe(
+      "https://gateway.example.test/auth/workload/token/renew",
+    );
+  });
+
   it.each([
     ["missing audience", { ...validEnv, WORKLOAD_JWT_AUDIENCE: "" }],
     ["short operator credential", { ...validEnv, WORKLOAD_OPERATOR_BEARER_TOKEN: "short" }],
@@ -47,6 +63,23 @@ describe("workload configuration", () => {
     ["human audience reuse", { ...validEnv, JWT_AUDIENCE: "workload-audience" }],
     ["wrong exchange path", { ...validEnv, WORKLOAD_TOKEN_ENDPOINT_URL: "https://auth.example.test/token" }],
     ["cross-origin exchange", { ...validEnv, WORKLOAD_TOKEN_ENDPOINT_URL: "https://tokens.example.test/workload/token" }],
+    ["gateway endpoint without explicit gateway origin", {
+      ...validEnv,
+      WORKLOAD_TOKEN_ENDPOINT_URL: "https://gateway.example.test/auth/workload/token",
+      WORKLOAD_RENEWAL_ENDPOINT_URL: "https://gateway.example.test/auth/workload/token/renew",
+    }],
+    ["gateway origin with a path", {
+      ...validEnv,
+      WORKLOAD_GATEWAY_ORIGIN: "https://gateway.example.test/auth",
+      WORKLOAD_TOKEN_ENDPOINT_URL: "https://gateway.example.test/auth/workload/token",
+      WORKLOAD_RENEWAL_ENDPOINT_URL: "https://gateway.example.test/auth/workload/token/renew",
+    }],
+    ["gateway endpoint origin mismatch", {
+      ...validEnv,
+      WORKLOAD_GATEWAY_ORIGIN: "https://gateway.example.test",
+      WORKLOAD_TOKEN_ENDPOINT_URL: "https://other.example.test/auth/workload/token",
+      WORKLOAD_RENEWAL_ENDPOINT_URL: "https://gateway.example.test/auth/workload/token/renew",
+    }],
     ["shared operator credential", {
       ...validEnv,
       WORKLOAD_OPERATOR_BEARER_TOKEN: validEnv.TOKEN_INTROSPECTION_BEARER_TOKEN,
