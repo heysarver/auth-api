@@ -11,10 +11,15 @@ describe("browser authentication rate-limit policy", () => {
     expect(skipsSharedIpRateLimit("/token")).toBe(true);
   });
 
-  it("keeps the shared IP limiter on unauthenticated and machine routes", () => {
+  it("uses the dedicated limiter for both introspection route spellings", () => {
+    expect(skipsSharedIpRateLimit("/token/introspect", "POST")).toBe(true);
+    expect(skipsSharedIpRateLimit("/token/introspect/", "POST")).toBe(true);
+  });
+
+  it("keeps the shared IP limiter on unauthenticated and workload routes", () => {
     expect(skipsSharedIpRateLimit("/sign-in/email")).toBe(false);
     expect(skipsSharedIpRateLimit("/sign-up/email")).toBe(false);
-    expect(skipsSharedIpRateLimit("/token/introspect")).toBe(false);
+    expect(skipsSharedIpRateLimit("/token/introspect/extra")).toBe(false);
     expect(skipsSharedIpRateLimit("/workload/token")).toBe(false);
   });
 
