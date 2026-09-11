@@ -151,7 +151,7 @@ const limiter = rateLimit({
   validate: { trustProxy: false }, // Disable default validation since we set trust proxy globally
   // Session refresh is already cookie-authenticated and Better Auth handles
   // its policy. A shared ingress IP must never lock every browser out.
-  skip: (request) => skipsSharedIpRateLimit(request.path),
+  skip: (request) => skipsSharedIpRateLimit(request.path, request.method),
   store: new RedisStore({
     // @ts-expect-error - ioredis call() returns unknown, but RedisStore expects Promise<any>
     sendCommand: (...args: string[]) => redis.call(...args) as Promise<any>,

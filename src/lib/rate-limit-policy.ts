@@ -4,8 +4,9 @@ export const betterAuthRateLimitCustomRules = {
   "/token": false,
 } as const;
 
-export function skipsSharedIpRateLimit(path: string): boolean {
+export function skipsSharedIpRateLimit(path: string, method = "GET"): boolean {
   // Introspection has its own short-window limiter. Counting its continuous
   // service traffic here would exhaust the browser bucket during normal use.
-  return path === "/token" || path === "/token/introspect" || path === "/token/introspect/";
+  return path === "/token" || (method === "POST" &&
+    (path === "/token/introspect" || path === "/token/introspect/"));
 }

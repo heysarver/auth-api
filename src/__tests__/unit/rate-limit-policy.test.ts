@@ -12,8 +12,8 @@ describe("browser authentication rate-limit policy", () => {
   });
 
   it("uses the dedicated limiter for both introspection route spellings", () => {
-    expect(skipsSharedIpRateLimit("/token/introspect")).toBe(true);
-    expect(skipsSharedIpRateLimit("/token/introspect/")).toBe(true);
+    expect(skipsSharedIpRateLimit("/token/introspect", "POST")).toBe(true);
+    expect(skipsSharedIpRateLimit("/token/introspect/", "POST")).toBe(true);
   });
 
   it("keeps the shared IP limiter on unauthenticated and workload routes", () => {
