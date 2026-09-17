@@ -338,4 +338,46 @@ describe("PostgreSQL generic workload store", () => {
     expect(statements.findIndex((sql) => sql.includes("pg_advisory_xact_lock")))
       .toBeLessThan(statements.findIndex((sql) => sql.includes("UPDATE auth.workload_principals")));
   });
+
+  it("reads a valid renewal credential and returns its jkt and principal", async () => {
+    const { database } = databaseWithClient(async () => result([renewalRow()]));
+    const store = createPostgresWorkloadStore(database as never);
+    await expect(store.readRenewalCredential(credential)).resolves.toEqual({
+      jkt,
+      principalId,
+    });
+  });
+
+  it("fails closed when the renewal credential row is absent", async () => {
+    const { database } = databaseWithClient(async () => result([]));
+    const store = createPostgresWorkloadStore(database as never);
+    await expect(store.readRenewalCredential(credential)).rejects.toThrow(
+      "invalid_renewal_credential",
+    );
+  });
+
+  it("fails closed when the renewal family is revoked or expired", async () => {
+    const { database } = databaseWithClient(async () =>
+      result([renewalRow({ familyRevokedAt: new Date() })]),
+    );
+    const store = createPostgresWorkloadStore(database as never);
+    await expect(store.readRenewalCredential(credential)).rejects.toThrow(
+      "invalid_renewal_credential",
+    );
+  });
+
+  it("resolves the credential family for a live token and null when absent", async () => {
+    const { database } = databaseWithClient(async (sql) => {
+      if (String(sql).includes("renewal_family_id")) {
+        return result([{ familyId }]);
+      }
+      return result([]);
+    });
+    const store = createPostgresWorkloadStore(database as never);
+    await expect(store.credentialFamilyForToken(claims)).resolves.toBe(familyId);
+
+    const { database: emptyDb } = databaseWithClient(async () => result([]));
+    const emptyStore = createPostgresWorkloadStore(emptyDb as never);
+    await expect(emptyStore.credentialFamilyForToken(claims)).resolves.toBeNull();
+  });
 });
