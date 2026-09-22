@@ -16,18 +16,19 @@ import { toNodeHandler } from "better-auth/node";
 import { auth, pool } from "./lib/auth.js";
 import { redis, registerCleanupHandlers } from "./lib/redis.js";
 import { validateTurnstileToken } from "./middleware/turnstile.js";
-import {
-  createPostgresSessionActivityChecker,
-  createBetterAuthJwtVerifier,
-  createTokenIntrospectionParseErrorHandler,
-  createTokenIntrospectionHandler,
-  tokenIntrospectionRateLimitHandler,
-} from "./lib/token-introspection.js";
-import { loadWorkloadConfig } from "./lib/workload-config.js";
-import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
-import { createPostgresWorkloadStore } from "./lib/workload-store.js";
-import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
-import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
+ import {
+   createPostgresSessionActivityChecker,
+   createBetterAuthJwtVerifier,
+   createTokenIntrospectionParseErrorHandler,
+   createTokenIntrospectionHandler,
+   tokenIntrospectionRateLimitHandler,
+ } from "./lib/token-introspection.js";
+ import { loadWorkloadConfig } from "./lib/workload-config.js";
+ import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
+ import { createPostgresWorkloadStore } from "./lib/workload-store.js";
+ import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
+ import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
+ import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
 
 // Register Redis cleanup handlers for graceful shutdown
 registerCleanupHandlers();
@@ -160,9 +161,13 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use(limiter);
+ app.use(limiter);
 
-const introspectionLimiter = rateLimit({
+ // H2: Per-credential (email) rate limit, before auth handlers.
+ // Caps sign-in / password-reset attempts per email, independent of IP.
+ app.use(credentialRateLimitMiddleware);
+
+ const introspectionLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: Number(process.env.TOKEN_INTROSPECTION_RATE_LIMIT_MAX) || 120,
   handler: tokenIntrospectionRateLimitHandler,
