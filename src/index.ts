@@ -16,19 +16,20 @@ import { toNodeHandler } from "better-auth/node";
 import { auth, pool } from "./lib/auth.js";
 import { redis, registerCleanupHandlers } from "./lib/redis.js";
 import { validateTurnstileToken } from "./middleware/turnstile.js";
- import {
-   createPostgresSessionActivityChecker,
-   createBetterAuthJwtVerifier,
-   createTokenIntrospectionParseErrorHandler,
-   createTokenIntrospectionHandler,
-   tokenIntrospectionRateLimitHandler,
- } from "./lib/token-introspection.js";
- import { loadWorkloadConfig } from "./lib/workload-config.js";
- import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
- import { createPostgresWorkloadStore } from "./lib/workload-store.js";
- import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
- import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
- import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
+import {
+  createPostgresSessionActivityChecker,
+  createBetterAuthJwtVerifier,
+  createTokenIntrospectionParseErrorHandler,
+  createTokenIntrospectionHandler,
+  createTokenIntrospectionRateLimitHandler,
+  tokenIntrospectionRateLimitHandler,
+} from "./lib/token-introspection.js";
+import { loadWorkloadConfig } from "./lib/workload-config.js";
+import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
+import { createPostgresWorkloadStore } from "./lib/workload-store.js";
+import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
+import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
+import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
 
 // Register Redis cleanup handlers for graceful shutdown
 registerCleanupHandlers();
@@ -163,14 +164,22 @@ const limiter = rateLimit({
 });
  app.use(limiter);
 
- // H2: Per-credential (email) rate limit, before auth handlers.
- // Caps sign-in / password-reset attempts per email, independent of IP.
- app.use(credentialRateLimitMiddleware);
+// H2: Per-credential (email) rate limit, before auth handlers.
+// Caps sign-in / password-reset attempts per email, independent of IP.
+app.use(credentialRateLimitMiddleware);
 
- const introspectionLimiter = rateLimit({
+// The client id the audit trail names for every introspection outcome,
+// including a rate-limited refusal. Declared once so the limiter and the
+// handler cannot report the same traffic under two different names.
+const tokenIntrospectionClientId =
+  process.env.TOKEN_INTROSPECTION_CLIENT_ID || "token-introspection-client";
+
+const introspectionLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: Number(process.env.TOKEN_INTROSPECTION_RATE_LIMIT_MAX) || 120,
-  handler: tokenIntrospectionRateLimitHandler,
+  handler: createTokenIntrospectionRateLimitHandler({
+    clientId: tokenIntrospectionClientId,
+  }),
   validate: { trustProxy: false },
   store: new RedisStore({
     // @ts-expect-error - ioredis call() returns unknown, but RedisStore expects Promise<any>
@@ -186,7 +195,7 @@ app.post(
   introspectionLimiter,
   createTokenIntrospectionHandler({
     machineToken: process.env.TOKEN_INTROSPECTION_BEARER_TOKEN,
-    clientId: process.env.TOKEN_INTROSPECTION_CLIENT_ID || "token-introspection-client",
+    clientId: tokenIntrospectionClientId,
     verifyToken: createBetterAuthJwtVerifier(auth.api),
     isSessionActive: createPostgresSessionActivityChecker(pool),
   }),
