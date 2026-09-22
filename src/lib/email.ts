@@ -1,5 +1,6 @@
 import sgMail from '@sendgrid/mail';
 import nodemailer from 'nodemailer';
+import { DEFAULT_OUTBOUND_TIMEOUT_MS } from './http-timeout.js';
 
 // Cache email configuration at module load (computed once at startup)
 export const EMAIL_CONFIG = {
@@ -17,6 +18,8 @@ export const EMAIL_CONFIG = {
   smtpHost: process.env.SMTP_HOST,
   smtpPort: parseInt(process.env.SMTP_PORT || "1025", 10),
   smtpFrom: process.env.SMTP_FROM || `noreply@${process.env.PRODUCTION_DOMAIN || "example.com"}`,
+  // M7: bound outbound SMTP calls so a hung relay can't hold a worker forever
+  smtpTimeout: Number(process.env.SMTP_TIMEOUT_MS) || DEFAULT_OUTBOUND_TIMEOUT_MS,
 } as const;
 
 // Initialize SendGrid with cached API key
@@ -31,6 +34,10 @@ const smtpTransport = EMAIL_CONFIG.smtpHost
       port: EMAIL_CONFIG.smtpPort,
       secure: false,
       ignoreTLS: true,
+      // M7: cap outbound SMTP handshakes so a stuck SMTP server cannot hold
+      // the email path indefinitely.
+      connectionTimeout: EMAIL_CONFIG.smtpTimeout,
+      socketTimeout: EMAIL_CONFIG.smtpTimeout,
     })
   : null;
 

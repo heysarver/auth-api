@@ -40,14 +40,14 @@ export const mockPoolQuery = vi.fn();
 export const mockPoolEnd = vi.fn();
 
 vi.mock("pg", () => ({
-  Pool: vi.fn(function () {
-    return {
-      query: mockPoolQuery,
-      end: mockPoolEnd,
-      connect: vi.fn(),
-      on: vi.fn(),
-    };
-  }),
+   Pool: vi.fn(function () {
+     return {
+       query: mockPoolQuery,
+       end: mockPoolEnd,
+       connect: vi.fn(),
+       on: vi.fn(),
+     };
+   }),
 }));
 
 // Mock Redis client
@@ -57,6 +57,32 @@ export const mockRedisDel = vi.fn();
 export const mockRedisQuit = vi.fn();
 export const mockRedisOn = vi.fn();
 
+/**
+ * Shared mutable state for the Redis rate-limit emulation.
+ * rate-limit-redis issues two raw commands via redis.call():
+ *   - ["SCRIPT", "LOAD", <lua>]            -> must return a SHA string
+ *   - ["EVALSHA", sha, "1", key, ...]      -> must return [totalHits, ttlMs]
+ * `currentHits` is read at call time so tests can change the counter without
+ * re-installing the mock (important: the module-level RedisStore performs
+ * background SCRIPT LOADs at import time, before any test installs a mock).
+ */
+export const redisRateLimitState = { currentHits: 0, windowMs: 60_000 };
+
+export const mockRedisCall = vi.fn(
+  (...args: unknown[]): Promise<unknown> => {
+    const command = args[0] as string;
+    if (command === "SCRIPT") {
+      return Promise.resolve("sha1234567890");
+    }
+    if (command === "EVALSHA") {
+      const hits = redisRateLimitState.currentHits;
+      redisRateLimitState.currentHits += 1;
+      return Promise.resolve([hits, redisRateLimitState.windowMs]);
+    }
+    return Promise.resolve(undefined);
+  }
+);
+
 vi.mock("ioredis", () => {
   const MockRedis = vi.fn(function (this: any, _url: string, _options: any) {
     this.get = mockRedisGet;
@@ -64,6 +90,7 @@ vi.mock("ioredis", () => {
     this.del = mockRedisDel;
     this.quit = mockRedisQuit;
     this.on = mockRedisOn;
+    this.call = mockRedisCall;
     return this;
   });
 

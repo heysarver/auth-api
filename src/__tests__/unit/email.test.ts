@@ -364,12 +364,16 @@ describe("lib/email.ts", () => {
       });
 
       expect(EMAIL_CONFIG.smtpPort).toBe(1026);
-      expect(mockCreateTransport).toHaveBeenCalledWith({
-        host: "mailpit",
-        port: 1026,
-        secure: false,
-        ignoreTLS: true,
-      });
+      expect(mockCreateTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: "mailpit",
+          port: 1026,
+          secure: false,
+          ignoreTLS: true,
+          connectionTimeout: 10000,
+          socketTimeout: 10000,
+        })
+      );
       expect(console.log).toHaveBeenCalledWith(
         "📬 SMTP transport configured: mailpit:1026"
       );

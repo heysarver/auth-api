@@ -29,6 +29,7 @@ import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/wor
 import { createPostgresWorkloadStore } from "./lib/workload-store.js";
 import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
 import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
+import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
 
 // Register Redis cleanup handlers for graceful shutdown
 registerCleanupHandlers();
@@ -161,7 +162,11 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use(limiter);
+ app.use(limiter);
+
+// H2: Per-credential (email) rate limit, before auth handlers.
+// Caps sign-in / password-reset attempts per email, independent of IP.
+app.use(credentialRateLimitMiddleware);
 
 // The client id the audit trail names for every introspection outcome,
 // including a rate-limited refusal. Declared once so the limiter and the

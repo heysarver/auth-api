@@ -5,11 +5,12 @@ import { postgresPoolMaximum } from "./database-config.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
 import { resolveGoogleRedirectURI } from "./oauth-config.js";
 import { redis } from "./redis.js";
-import { betterAuthRateLimitCustomRules } from "./rate-limit-policy.js";
-import { createDisabledUserSessionGuard } from "./session-security.js";
-import { buildAdvancedCookieOptions } from "./cookie-config.js";
-import { matchingVerifiedEmailAccountLinking } from "./account-linking-config.js";
-import { mapGoogleProfile, type GoogleProfile } from "./google-oauth-profile.js";
+ import { betterAuthRateLimitCustomRules } from "./rate-limit-policy.js";
+ import { createDisabledUserSessionGuard } from "./session-security.js";
+ import { buildAdvancedCookieOptions } from "./cookie-config.js";
+ import { matchingVerifiedEmailAccountLinking } from "./account-linking-config.js";
+ import { mapGoogleProfile, type GoogleProfile } from "./google-oauth-profile.js";
+ import { fetchTimeoutOptions } from "./http-timeout.js";
 
 // OAuth profile types for type-safe access
 interface GitHubProfile {
@@ -32,6 +33,16 @@ interface GitHubEmail {
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   throw new Error('DATABASE_URL environment variable is required');
+}
+
+// Fail-fast: a short or missing signing secret weakens all session/JWT signing.
+// Require at least 32 characters before the auth server starts serving requests.
+const betterAuthSecret = process.env.BETTER_AUTH_SECRET;
+if (!betterAuthSecret || betterAuthSecret.length < 32) {
+  throw new Error(
+    'BETTER_AUTH_SECRET must be set to a string of at least 32 characters ' +
+      '(got a missing or too-short value). Refusing to start: weak signing secret.',
+  );
 }
 
 export const pool = new Pool({
@@ -83,8 +94,8 @@ export const auth = betterAuth({
   // Default is "/api/auth" which breaks subdomain architecture
   basePath: "/",
 
-  // Secret for signing tokens
-  secret: process.env.BETTER_AUTH_SECRET,
+  // Secret for signing tokens (validated above: must be >= 32 chars)
+  secret: betterAuthSecret,
 
   // Secondary storage using ValKey/Redis for session data
   secondaryStorage: {
@@ -123,9 +134,11 @@ export const auth = betterAuth({
   ],
 
   // Email/password authentication
+  // M9: unverified emails must not sign in. Default ON (fail-safe) so a
+  // misconfigured deploy cannot silently allow unverified sign-ins.
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
+    requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION !== 'false',
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url, token }) => {
       await sendPasswordResetEmail(user.email, url, token);
@@ -148,7 +161,7 @@ export const auth = betterAuth({
       const webhookUrl = process.env.WELCOME_EMAIL_WEBHOOK_URL;
       if (webhookUrl) {
         try {
-          const response = await fetch(webhookUrl, {
+          const response = await fetch(webhookUrl, fetchTimeoutOptions({
             method: 'POST',
             headers: buildWebhookHeaders(),
             body: JSON.stringify({
@@ -161,7 +174,7 @@ export const auth = betterAuth({
               },
               timestamp: new Date().toISOString(),
             }),
-          });
+          }));
           if (!response.ok) {
             console.error(`❌ Webhook failed: ${response.status} ${response.statusText}`);
           } else {
@@ -184,11 +197,11 @@ export const auth = betterAuth({
         redirectURI: resolveGoogleRedirectURI(),
         // Custom getUserInfo to properly map Google's email_verified claim
         getUserInfo: async (token) => {
-          const response = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+          const response = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", fetchTimeoutOptions({
             headers: {
               Authorization: `Bearer ${token.accessToken}`,
             },
-          });
+          }));
           const profile = await response.json() as GoogleProfile;
           return mapGoogleProfile(profile);
         },
@@ -211,7 +224,7 @@ export const auth = betterAuth({
 
           // Fetch user profile
           console.log("🔍 GitHub OAuth: Fetching user profile...");
-          const response = await fetch("https://api.github.com/user", { headers });
+          const response = await fetch("https://api.github.com/user", fetchTimeoutOptions({ headers }));
           const profile = await response.json() as GitHubProfile;
           console.log("🔍 GitHub OAuth: Profile fetched, email:", profile.email ? "present" : "null");
 
@@ -222,7 +235,7 @@ export const auth = betterAuth({
           if (!email) {
             console.log("🔍 GitHub OAuth: Email is null, fetching from /user/emails...");
             try {
-              const emailsResponse = await fetch("https://api.github.com/user/emails", { headers });
+              const emailsResponse = await fetch("https://api.github.com/user/emails", fetchTimeoutOptions({ headers }));
               console.log("🔍 GitHub OAuth: /user/emails response status:", emailsResponse.status);
 
               if (emailsResponse.ok) {
@@ -356,7 +369,7 @@ export const auth = betterAuth({
             try {
               const event = user.emailVerified ? 'user.social_signup' : 'user.created';
               console.log(`🔔 Firing webhook for new user: ${user.email} (${event})`);
-              const response = await fetch(webhookUrl, {
+              const response = await fetch(webhookUrl, fetchTimeoutOptions({
                 method: 'POST',
                 headers: buildWebhookHeaders(),
                 body: JSON.stringify({
@@ -369,7 +382,7 @@ export const auth = betterAuth({
                   },
                   timestamp: new Date().toISOString(),
                 }),
-              });
+              }));
               if (!response.ok) {
                 console.error(`❌ Webhook failed: ${response.status} ${response.statusText}`);
               } else {
