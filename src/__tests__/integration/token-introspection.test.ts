@@ -345,4 +345,28 @@ describe("POST /token/introspect", () => {
     expect(response.status).toBe(429);
     expect(response.body).toEqual({ error: "rate_limited" });
   });
+
+  it("keeps the shared limiter refusal exactly as every other consumer had it", async () => {
+    /*
+     * `tokenIntrospectionRateLimitHandler` is not only the introspection
+     * limiter's handler: the workload limiter uses it too. Adding the audit and
+     * the retry hint must therefore live in the separate factory, or a workload
+     * refusal would be recorded as a token-introspection event and this shared
+     * response would change under a route this module does not own.
+     */
+    const audit = vi.fn();
+    const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
+    const app = express();
+    app.post("/shared", tokenIntrospectionRateLimitHandler);
+
+    const response = await request(app).post("/shared");
+
+    expect(response.status).toBe(429);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["retry-after"]).toBeUndefined();
+    expect(response.body).toEqual({ error: "rate_limited" });
+    expect(audit).not.toHaveBeenCalled();
+    expect(consoleInfo).not.toHaveBeenCalled();
+    consoleInfo.mockRestore();
+  });
 });

@@ -97,6 +97,11 @@ function defaultAudit(event: IntrospectionAuditEvent): void {
  * The limiter runs before the handler, so it cannot use the handler's own
  * `record`. This emits the same event shape to the same place, which is what
  * makes a throttled burst countable next to the requests it refused.
+ *
+ * Deliberately a separate factory from `tokenIntrospectionRateLimitHandler`
+ * below. That constant is shared by the workload limiter, so building the audit
+ * into it would report a workload refusal as a token-introspection event and
+ * change a response this module does not own.
  */
 export function createTokenIntrospectionRateLimitHandler(options: {
   clientId: string;
@@ -123,8 +128,16 @@ export function createTokenIntrospectionRateLimitHandler(options: {
   };
 }
 
-export const tokenIntrospectionRateLimitHandler: RequestHandler =
-  createTokenIntrospectionRateLimitHandler({ clientId: "token-introspection-client" });
+/**
+ * The shared limiter refusal, unchanged for every existing consumer.
+ *
+ * The workload limiter uses this too, so its response is frozen: same status,
+ * same cache header, same body as before the introspection route gained an
+ * audited variant.
+ */
+export const tokenIntrospectionRateLimitHandler: RequestHandler = (_req, res) => {
+  res.status(429).set("Cache-Control", "no-store").json({ error: "rate_limited" });
+};
 
 export function createPostgresSessionActivityChecker(
   database: Pick<Pool, "query">,
