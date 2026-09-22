@@ -16,7 +16,20 @@ export interface IntrospectionClaims {
 interface IntrospectionAuditEvent {
   event: "token_introspection";
   clientId: string;
-  outcome: "active" | "inactive" | "invalid_request" | "misconfigured" | "unauthorized";
+  /**
+   * `rate_limited` is recorded by the limiter, before the handler runs, so a
+   * throttled burst is visible in the audit trail. Without it a rejected
+   * request left no trace at all: the control plane saw its introspection
+   * refused, told the founder their session had failed, and nothing anywhere
+   * said the identity service had shed load.
+   */
+  outcome:
+    | "active"
+    | "inactive"
+    | "invalid_request"
+    | "misconfigured"
+    | "unauthorized"
+    | "rate_limited";
 }
 
 export interface TokenIntrospectionDependencies {
@@ -78,6 +91,41 @@ function defaultAudit(event: IntrospectionAuditEvent): void {
   console.info(JSON.stringify(event));
 }
 
+/**
+ * The limiter's refusal, recorded where the other outcomes are recorded.
+ *
+ * The limiter runs before the handler, so it cannot use the handler's own
+ * `record`. This emits the same event shape to the same place, which is what
+ * makes a throttled burst countable next to the requests it refused.
+ */
+export function createTokenIntrospectionRateLimitHandler(options: {
+  clientId: string;
+  audit?: (event: IntrospectionAuditEvent) => void;
+}): RequestHandler {
+  const audit = options.audit ?? defaultAudit;
+  return (_req, res) => {
+    try {
+      audit({
+        event: "token_introspection",
+        clientId: options.clientId,
+        outcome: "rate_limited",
+      });
+    } catch {
+      // Audit transport failures must not change the refusal.
+    }
+    res
+      .status(429)
+      .set("Cache-Control", "no-store")
+      // A refused caller needs to know when to come back. The window is one
+      // minute, so a second is the honest floor rather than a guess.
+      .set("Retry-After", "1")
+      .json({ error: "rate_limited" });
+  };
+}
+
+export const tokenIntrospectionRateLimitHandler: RequestHandler =
+  createTokenIntrospectionRateLimitHandler({ clientId: "token-introspection-client" });
+
 export function createPostgresSessionActivityChecker(
   database: Pick<Pool, "query">,
 ): (claims: IntrospectionClaims) => Promise<boolean> {
@@ -120,10 +168,6 @@ export function createTokenIntrospectionParseErrorHandler(): ErrorRequestHandler
     return next(error);
   };
 }
-
-export const tokenIntrospectionRateLimitHandler: RequestHandler = (_req, res) => {
-  res.status(429).set("Cache-Control", "no-store").json({ error: "rate_limited" });
-};
 
 export function createTokenIntrospectionHandler(
   dependencies: TokenIntrospectionDependencies,

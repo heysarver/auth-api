@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createTokenIntrospectionParseErrorHandler,
   createTokenIntrospectionHandler,
+  createTokenIntrospectionRateLimitHandler,
   tokenIntrospectionRateLimitHandler,
   type IntrospectionClaims,
 } from "../../lib/token-introspection.js";
@@ -35,7 +36,13 @@ interface HarnessOptions {
   audit?: (event: {
     event: "token_introspection";
     clientId: string;
-    outcome: "active" | "inactive" | "invalid_request" | "misconfigured" | "unauthorized";
+    outcome:
+      | "active"
+      | "inactive"
+      | "invalid_request"
+      | "misconfigured"
+      | "unauthorized"
+      | "rate_limited";
   }) => void;
 }
 
@@ -292,6 +299,50 @@ describe("POST /token/introspect", () => {
 
     expect(response.status).toBe(429);
     expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual({ error: "rate_limited" });
+  });
+
+  it("records a rate-limit denial in the audit trail with a retry hint", async () => {
+    const audit = vi.fn();
+    const app = express();
+    app.post(
+      "/limited",
+      createTokenIntrospectionRateLimitHandler({
+        clientId: "quietfirm-api",
+        audit,
+      }),
+    );
+
+    const response = await request(app).post("/limited");
+
+    expect(response.status).toBe(429);
+    // A burst that the limiter sheds must be countable beside the requests it
+    // refused. Before this, a throttled introspection left no trace, so an
+    // overloaded identity service looked like a run of bad credentials.
+    expect(audit).toHaveBeenCalledWith({
+      event: "token_introspection",
+      clientId: "quietfirm-api",
+      outcome: "rate_limited",
+    });
+    // The caller is told when to come back rather than only that it failed.
+    expect(response.headers["retry-after"]).toBe("1");
+  });
+
+  it("serves the refusal even when the audit transport fails", async () => {
+    const app = express();
+    app.post(
+      "/limited",
+      createTokenIntrospectionRateLimitHandler({
+        clientId: "quietfirm-api",
+        audit: () => {
+          throw new Error("audit transport is down");
+        },
+      }),
+    );
+
+    const response = await request(app).post("/limited");
+
+    expect(response.status).toBe(429);
     expect(response.body).toEqual({ error: "rate_limited" });
   });
 });

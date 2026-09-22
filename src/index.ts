@@ -21,6 +21,7 @@ import {
   createBetterAuthJwtVerifier,
   createTokenIntrospectionParseErrorHandler,
   createTokenIntrospectionHandler,
+  createTokenIntrospectionRateLimitHandler,
   tokenIntrospectionRateLimitHandler,
 } from "./lib/token-introspection.js";
 import { loadWorkloadConfig } from "./lib/workload-config.js";
@@ -162,10 +163,18 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// The client id the audit trail names for every introspection outcome,
+// including a rate-limited refusal. Declared once so the limiter and the
+// handler cannot report the same traffic under two different names.
+const tokenIntrospectionClientId =
+  process.env.TOKEN_INTROSPECTION_CLIENT_ID || "token-introspection-client";
+
 const introspectionLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: Number(process.env.TOKEN_INTROSPECTION_RATE_LIMIT_MAX) || 120,
-  handler: tokenIntrospectionRateLimitHandler,
+  handler: createTokenIntrospectionRateLimitHandler({
+    clientId: tokenIntrospectionClientId,
+  }),
   validate: { trustProxy: false },
   store: new RedisStore({
     // @ts-expect-error - ioredis call() returns unknown, but RedisStore expects Promise<any>
@@ -181,7 +190,7 @@ app.post(
   introspectionLimiter,
   createTokenIntrospectionHandler({
     machineToken: process.env.TOKEN_INTROSPECTION_BEARER_TOKEN,
-    clientId: process.env.TOKEN_INTROSPECTION_CLIENT_ID || "token-introspection-client",
+    clientId: tokenIntrospectionClientId,
     verifyToken: createBetterAuthJwtVerifier(auth.api),
     isSessionActive: createPostgresSessionActivityChecker(pool),
   }),
