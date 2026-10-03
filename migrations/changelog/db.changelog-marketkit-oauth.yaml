@@ -1,0 +1,33 @@
+databaseChangeLog:
+  # OPT-IN MarketKit OAuth-provider schema ONLY.
+  #
+  # This changelog is NOT referenced by db.changelog-master.yaml. Apply it
+  # explicitly, and only when the extension is enabled:
+  #
+  #   liquibase --changeLogFile=migrations/changelog/db.changelog-marketkit-oauth.yaml \
+  #             --url="$DATABASE_URL" update
+  #
+  # See changes/marketkit-oauth/README.md for why it is separate and how the SQL
+  # is derived from the installed @better-auth/oauth-provider@1.7.7 metadata.
+
+  - changeSet:
+      id: marketkit-oauth-provider-177
+      author: sarvent-agent-barbara
+      comment: OPT-IN MarketKit OAuth-provider schema, derived from the INSTALLED @better-auth/oauth-provider@1.7.7 plugin metadata (singular modelName tables; JSONB arrays). Additive only; unused until MARKETKIT_OAUTH_ENABLED=true. requirePKCE defaults TRUE.
+      changes:
+        - sqlFile:
+            path: changes/auth/007-create-oauth-provider-tables.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: true
+            sql: |
+              DROP TABLE IF EXISTS auth."oauthClientAssertion";
+              DROP TABLE IF EXISTS auth."oauthConsent";
+              DROP TABLE IF EXISTS auth."oauthAccessToken";
+              DROP TABLE IF EXISTS auth."oauthRefreshToken";
+              DROP TABLE IF EXISTS auth."oauthClientResource";
+              DROP TABLE IF EXISTS auth."oauthResource";
+              DROP TABLE IF EXISTS auth."oauthClient";

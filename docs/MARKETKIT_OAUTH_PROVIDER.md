@@ -71,11 +71,38 @@ granted set, and `sub` is present.
 ## Schema
 
 `migrations/changelog/changes/auth/007-create-oauth-provider-tables.sql` is
-GENERATED from the INSTALLED `@better-auth/oauth-provider@1.7.7` `plugin.schema`
-(model names `oauthClients`, `oauthResources`, `oauthClientResources`,
-`oauthAccessTokens`, `oauthRefreshTokens`, `oauthConsents`,
-`oauthClientAssertions`). It is additive and unused until the extension is ON.
-This is separate from any hand-written parent migration.
+DERIVED from the INSTALLED `@better-auth/oauth-provider@1.7.7` metadata via
+better-auth's own `getAuthTables()` + postgres type mapping (the same mapping
+`get-migration` uses) — NOT from an assumed shape. Two properties are load-bearing
+and were each verified by driving the real flow against an isolated PostgreSQL:
+
+- **Table identifiers are the plugin's SINGULAR `modelName` values**, quoted:
+  `auth."oauthClient"`, `auth."oauthResource"`, `auth."oauthClientResource"`,
+  `auth."oauthRefreshToken"`, `auth."oauthAccessToken"`, `auth."oauthConsent"`,
+  `auth."oauthClientAssertion"`. The runtime's `getModelName` uses `usePlural:
+  false`, so a pluralised table (e.g. `oauthClients`) is NOT found and the server
+  fails the schema check. An earlier hand-written placeholder (plural
+  `oauth_clients`, `TEXT[]`) does not match and is intentionally NOT merged — see
+  `changes/marketkit-oauth/README.md`.
+- **`string[]` fields map to `JSONB` on postgres** (not `TEXT[]`). The adapter
+  JSON-serialises array fields, so a `TEXT[]` column yields `malformed array
+  literal` at write time.
+
+`auth."oauthClient"."requirePKCE"` defaults `TRUE`. The migration is additive and
+unused until the extension is ON.
+
+## Applying the schema (opt-in, not automatic)
+
+The changeSet is deliberately NOT in `db.changelog-master.yaml`, so the shared
+service's default migrate step never creates authorization-server tables. It
+lives in a separate changelog and is applied explicitly, only when enabling the
+extension:
+
+```sh
+liquibase --changeLogFile=migrations/changelog/db.changelog-marketkit-oauth.yaml \
+          --url="$DATABASE_URL" update
+```
+
 
 ## Build / registry target
 
