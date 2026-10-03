@@ -36,9 +36,15 @@ describe("matching-email account linking", () => {
 
   it("preserves a verified Google email for Better Auth's linking decision", () => {
     expect(mapGoogleProfile(googleProfile(true)).user).toMatchObject({
-      id: "google-user-123",
+      // better-auth >= 1.7 forbids a provider `id` in mapped user info.
       email: "existing@example.com",
       emailVerified: true,
+    });
+  });
+
+  it("keeps the raw Google profile (with its id) in data for account keying", () => {
+    expect(mapGoogleProfile(googleProfile(true)).data).toMatchObject({
+      id: "google-user-123",
     });
   });
 

@@ -1,24 +1,27 @@
 /**
- * Regression tests for the MarketKit opt-in OAuth-provider extension.
+ * Regression + contract tests for the MarketKit opt-in OAuth-provider extension.
  *
- * Contract under test (see docs/MARKETKIT_OAUTH_PROVIDER.md):
- *   1. DEFAULT OFF. With no MARKETKIT_OAUTH_* env the extension is inert and the
- *      existing plugins array (jwt only) is returned byte-for-byte unchanged, so
- *      current JWT/session/login/workload consumers are unaffected.
- *   2. Every audience / resource / scope / origin / redirect / client value is
- *      passed EXPLICITLY from MarketKit env — never an upstream default.
- *   3. Compatibility gate: the upstream OAuth-provider authorization is only
- *      safe at >= 1.7.0 (GHSA-p2fr-6hmx-4528). Enabling against the pinned
- *      1.6.23 identity must REFUSE rather than silently fork an unpatched AS.
- *   4. Partial/malformed config refuses to start (fail-closed), never invents
- *      users or defaults.
+ * These are REAL tests of the real module. `applyMarketKitOAuthExtension` builds
+ * an actual `oauthProvider()` plugin (no options cast), and the compatibility
+ * gate reads the INSTALLED provider version from the live plugin object, never
+ * from configuration.
+ *
+ *  1. DEFAULT OFF — inert, plugins array returned by reference; no provider dep
+ *     is exercised.
+ *  2. Explicit config only — every value from MARKETKIT_OAUTH_*; fail closed.
+ *  3. Version gate — malformed and prerelease versions are refused, and the
+ *     floor is enforced (no env trust).
+ *  4. PKCE — always required; the built plugin pins clientRegistrationRequirePKCE
+ *     and there is no env switch to relax it.
  */
 import { describe, it, expect } from "vitest";
 import {
   MARKETKIT_OAUTH_ENV_PREFIX,
   PROVIDER_PATCHED_FLOOR,
+  PROVIDER_ADVISORY_FLOOR,
   PROVIDER_ADVISORY_ID,
   resolveMarketKitOAuthConfig,
+  parseSemver,
   assertProviderCompatible,
   createMarketKitOAuthProviderOptions,
   applyMarketKitOAuthExtension,
@@ -33,14 +36,13 @@ const FULL_ENV: NodeJS.ProcessEnv = {
   MARKETKIT_OAUTH_ALLOWED_ORIGINS: "https://mcp.marketkit.example",
   MARKETKIT_OAUTH_RESOURCE: "https://mcp.marketkit.example",
   MARKETKIT_OAUTH_SCOPES: "mcp:tools,mcp:artifacts:read",
-  MARKETKIT_OAUTH_CLIENT_REGISTRATION_ALLOWED_RESOURCES: "https://mcp.marketkit.example",
-  MARKETKIT_OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES: "mcp:tools,mcp:artifacts:read",
+  MARKETKIT_OAUTH_CONSENT_PAGE: "/consent",
+  MARKETKIT_OAUTH_LOGIN_PAGE: "/login",
 };
 
 describe("marketkit oauth provider extension — default OFF", () => {
   it("is inert when no MARKETKIT_OAUTH_* env is present", () => {
-    const config = resolveMarketKitOAuthConfig({});
-    expect(config).toBeNull();
+    expect(resolveMarketKitOAuthConfig({})).toBeNull();
   });
 
   it("is inert when MARKETKIT_OAUTH_ENABLED is not exactly 'true'", () => {
@@ -49,100 +51,142 @@ describe("marketkit oauth provider extension — default OFF", () => {
     expect(resolveMarketKitOAuthConfig({ MARKETKIT_OAUTH_ENABLED: "yes" })).toBeNull();
   });
 
-  it("returns the existing plugin list unchanged when disabled", () => {
-    const existing = [{ id: "jwt" }] as unknown[];
-    const result = applyMarketKitOAuthExtension(existing, {}, "1.7.7");
-    expect(result).toEqual(existing);
+  it("returns the existing plugin list unchanged (same reference) when disabled", () => {
+    const existing = [{ id: "jwt" }];
+    const result = applyMarketKitOAuthExtension(existing, {});
+    expect(result).toBe(existing);
     expect(result).toHaveLength(1);
   });
 
-  it("does not require the patched package when disabled (pinned 1.6.23 is fine)", () => {
-    const existing: unknown[] = [];
-    // 1.6.23 is below the floor, yet OFF must still be a no-op.
-    expect(() => applyMarketKitOAuthExtension(existing, {}, "1.6.23")).not.toThrow();
+  it("names the MARKETKIT env prefix", () => {
+    expect(MARKETKIT_OAUTH_ENV_PREFIX).toBe("MARKETKIT_OAUTH_");
   });
 });
 
 describe("marketkit oauth provider extension — explicit config only", () => {
   it("refuses to enable without an explicit client id", () => {
-    const env = { ...FULL_ENV, MARKETKIT_OAUTH_CLIENT_ID: undefined };
-    expect(() => resolveMarketKitOAuthConfig(env)).toThrow(/MARKETKIT_OAUTH_CLIENT_ID/);
+    expect(() =>
+      resolveMarketKitOAuthConfig({ ...FULL_ENV, MARKETKIT_OAUTH_CLIENT_ID: undefined }),
+    ).toThrow(/MARKETKIT_OAUTH_CLIENT_ID/);
   });
 
   it("refuses to enable without an explicit resource/audience", () => {
-    const env = { ...FULL_ENV, MARKETKIT_OAUTH_RESOURCE: undefined };
-    expect(() => resolveMarketKitOAuthConfig(env)).toThrow(/MARKETKIT_OAUTH_RESOURCE/);
+    expect(() =>
+      resolveMarketKitOAuthConfig({ ...FULL_ENV, MARKETKIT_OAUTH_RESOURCE: undefined }),
+    ).toThrow(/MARKETKIT_OAUTH_RESOURCE/);
   });
 
   it("refuses to enable without an explicit redirect allowlist", () => {
-    const env = { ...FULL_ENV, MARKETKIT_OAUTH_REDIRECT_URIS: undefined };
-    expect(() => resolveMarketKitOAuthConfig(env)).toThrow(/MARKETKIT_OAUTH_REDIRECT_URIS/);
+    expect(() =>
+      resolveMarketKitOAuthConfig({ ...FULL_ENV, MARKETKIT_OAUTH_REDIRECT_URIS: undefined }),
+    ).toThrow(/MARKETKIT_OAUTH_REDIRECT_URIS/);
+  });
+
+  it("refuses to enable without an explicit consent page", () => {
+    expect(() =>
+      resolveMarketKitOAuthConfig({ ...FULL_ENV, MARKETKIT_OAUTH_CONSENT_PAGE: undefined }),
+    ).toThrow(/MARKETKIT_OAUTH_CONSENT_PAGE/);
+  });
+
+  it("refuses to enable without an explicit login page", () => {
+    expect(() =>
+      resolveMarketKitOAuthConfig({ ...FULL_ENV, MARKETKIT_OAUTH_LOGIN_PAGE: undefined }),
+    ).toThrow(/MARKETKIT_OAUTH_LOGIN_PAGE/);
   });
 
   it("refuses a wildcard redirect uri", () => {
-    const env = { ...FULL_ENV, MARKETKIT_OAUTH_REDIRECT_URIS: "https://*.example/cb" };
-    expect(() => resolveMarketKitOAuthConfig(env)).toThrow(/wildcard|exact/i);
+    expect(() =>
+      resolveMarketKitOAuthConfig({ ...FULL_ENV, MARKETKIT_OAUTH_REDIRECT_URIS: "https://*.example/cb" }),
+    ).toThrow(/wildcard|exact/i);
   });
 
   it("refuses a non-https redirect uri", () => {
-    const env = { ...FULL_ENV, MARKETKIT_OAUTH_REDIRECT_URIS: "http://evil.example/cb" };
-    expect(() => resolveMarketKitOAuthConfig(env)).toThrow(/https/i);
+    expect(() =>
+      resolveMarketKitOAuthConfig({ ...FULL_ENV, MARKETKIT_OAUTH_REDIRECT_URIS: "http://evil.example/cb" }),
+    ).toThrow(/https/i);
   });
 
-  it("names the MARKETKIT env prefix in the failure", () => {
-    expect(MARKETKIT_OAUTH_ENV_PREFIX).toBe("MARKETKIT_OAUTH_");
+  it("refuses an absolute/wildcard consent page", () => {
+    expect(() =>
+      resolveMarketKitOAuthConfig({ ...FULL_ENV, MARKETKIT_OAUTH_CONSENT_PAGE: "https://evil.example/consent" }),
+    ).toThrow(/consent/i);
   });
 
   it("parses an explicit config with zero upstream defaults", () => {
     const config = resolveMarketKitOAuthConfig(FULL_ENV) as MarketKitOAuthConfig;
-    expect(config).not.toBeNull();
     expect(config.resource).toBe("https://mcp.marketkit.example");
     expect(config.scopes).toEqual(["mcp:tools", "mcp:artifacts:read"]);
     expect(config.redirectUris).toEqual(["https://mcp.marketkit.example/callback"]);
-    expect(config.allowedOrigins).toEqual(["https://mcp.marketkit.example"]);
-    expect(config.requirePKCE).toBe(true);
-  });
-
-  it("defaults PKCE to required and consent to required unless explicitly disabled", () => {
-    const config = resolveMarketKitOAuthConfig(FULL_ENV) as MarketKitOAuthConfig;
-    expect(config.requirePKCE).toBe(true);
-    expect(config.consentRequired).toBe(true);
-  });
-
-  it("builds oauthProvider options bound to the explicit MarketKit values", () => {
-    const config = resolveMarketKitOAuthConfig(FULL_ENV) as MarketKitOAuthConfig;
-    const options = createMarketKitOAuthProviderOptions(config);
-    expect(options.__marketkit).toBe(true);
-    expect(options.scopes).toEqual(["mcp:tools", "mcp:artifacts:read"]);
-    expect(options.allowedResources).toEqual(["https://mcp.marketkit.example"]);
-    expect(options.clientRegistrationAllowedResources).toEqual([
-      "https://mcp.marketkit.example",
-    ]);
-    // No upstream default resource leaks in.
-    expect(options.allowedResources).not.toContain("http://localhost");
+    expect(config.consentPage).toBe("/consent");
   });
 });
 
-describe("marketkit oauth provider extension — compatibility gate (GHSA-p2fr-6hmx-4528)", () => {
-  it("exposes the patched floor and advisory id", () => {
-    expect(PROVIDER_PATCHED_FLOOR).toBe("1.7.0");
+describe("marketkit oauth provider extension — REAL plugin composition", () => {
+  it("builds options bound to the explicit MarketKit values", () => {
+    const config = resolveMarketKitOAuthConfig(FULL_ENV) as MarketKitOAuthConfig;
+    const options = createMarketKitOAuthProviderOptions(config);
+    expect(options.resources).toEqual([
+      { identifier: "https://mcp.marketkit.example", allowedScopes: ["mcp:tools", "mcp:artifacts:read"] },
+    ]);
+    expect(options.allowDynamicClientRegistration).toBe(false);
+    expect(options.clientRegistrationRequirePKCE).toBe(true);
+    expect(options.consentPage).toBe("/consent");
+    expect(options.loginPage).toBe("/login");
+    // No upstream default resource leaks in.
+    expect(JSON.stringify(options.resources)).not.toContain("localhost");
+  });
+
+  it("appends an actual oauthProvider plugin (not an options cast) when ON", () => {
+    const existing = [{ id: "jwt" }];
+    const result = applyMarketKitOAuthExtension(existing, FULL_ENV);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toBe(existing[0]);
+    const plugin = result[1] as { id?: string; version?: string; schema?: unknown };
+    expect(plugin.id).toBe("oauth-provider");
+    // The real plugin runtime reports its installed version — the value the gate
+    // consumed, which must equal the pinned floor.
+    expect(plugin.version).toBe(PROVIDER_PATCHED_FLOOR);
+    // A real plugin exposes a schema; a plain options object would not.
+    expect(plugin.schema).toBeDefined();
+  });
+});
+
+describe("marketkit oauth provider extension — version gate (GHSA-p2fr-6hmx-4528)", () => {
+  it("exposes the advisory floor, pinned floor and advisory id", () => {
+    expect(PROVIDER_ADVISORY_FLOOR).toBe("1.7.0");
+    expect(PROVIDER_PATCHED_FLOOR).toBe("1.7.7");
     expect(PROVIDER_ADVISORY_ID).toBe("GHSA-p2fr-6hmx-4528");
   });
 
-  it("refuses to run against the pinned 1.6.23 identity", () => {
-    expect(() => assertProviderCompatible("1.6.23")).toThrow(/1\.7\.0/);
+  it("rejects the pinned 1.6.23 identity", () => {
+    expect(() => assertProviderCompatible("1.6.23")).toThrow(/1\.7\.7/);
     expect(() => assertProviderCompatible("1.6.23")).toThrow(/GHSA-p2fr-6hmx-4528/);
   });
 
-  it("accepts a patched release", () => {
-    expect(() => assertProviderCompatible("1.7.0")).not.toThrow();
+  it("accepts the pinned patched release and newer stable releases", () => {
     expect(() => assertProviderCompatible("1.7.7")).not.toThrow();
+    expect(() => assertProviderCompatible("1.7.8")).not.toThrow();
+    expect(() => assertProviderCompatible("2.0.0")).not.toThrow();
   });
 
-  it("refuses an unpatched 1.6.x when the extension is ON", () => {
-    const existing: unknown[] = [];
-    expect(() => applyMarketKitOAuthExtension(existing, FULL_ENV, "1.6.23")).toThrow(
-      /GHSA-p2fr-6hmx-4528/,
-    );
+  it("rejects malformed versions rather than coercing them", () => {
+    for (const bad of ["1.7", "1.7.x", "v1.7.7", "", " 1.7.7", "1.7.7-", "not-a-version"]) {
+      expect(parseSemver(bad)).toBeNull();
+      expect(() => assertProviderCompatible(bad)).toThrow(/not a valid semver/i);
+    }
+  });
+
+  it("rejects any prerelease, even a high one", () => {
+    expect(parseSemver("1.7.0-beta.9")?.prerelease).toBe("beta.9");
+    expect(() => assertProviderCompatible("1.7.0-beta.9")).toThrow(/prerelease/i);
+    expect(() => assertProviderCompatible("1.8.0-rc.1")).toThrow(/prerelease/i);
+  });
+
+  it("never trusts an env-supplied version (gate reads the plugin runtime)", () => {
+    // A hostile env var must not influence the gate — the function signature no
+    // longer accepts a version argument at all.
+    const hostile: NodeJS.ProcessEnv = { ...FULL_ENV, MARKETKIT_OAUTH_PROVIDER_VERSION: "9.9.9" };
+    const plugin = applyMarketKitOAuthExtension([], hostile)[0] as { version?: string };
+    expect(plugin.version).toBe(PROVIDER_PATCHED_FLOOR);
   });
 });

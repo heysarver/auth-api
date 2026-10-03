@@ -20,8 +20,10 @@ function createLocalUser(emailVerified = true) {
 function createHarness(localEmailVerified = true) {
   const localUser = createLocalUser(localEmailVerified);
   const linkAccount = vi.fn().mockResolvedValue({ id: "linked-account-123" });
-  const createOAuthUser = vi.fn();
+  const createUser = vi.fn();
+  const createAccount = vi.fn();
   const updateUser = vi.fn();
+  const updateAccount = vi.fn();
   const createSession = vi.fn().mockResolvedValue({
     id: "session-123",
     userId: localUser.id,
@@ -30,7 +32,14 @@ function createHarness(localEmailVerified = true) {
     createdAt: now,
     updatedAt: now,
   });
-  const findOAuthUser = vi.fn().mockResolvedValue({
+
+  // better-auth >= 1.7 internalAdapter surface used by handleOAuthUserInfo.
+  // No pre-existing google account → findAccountOwnerByKey returns null, so the
+  // flow falls through to the email lookup.
+  const findAccountOwnerByKey = vi.fn().mockResolvedValue(null);
+  const findAccountByKey = vi.fn().mockResolvedValue(null);
+  const findUserById = vi.fn().mockResolvedValue(localUser);
+  const findUserByEmail = vi.fn().mockResolvedValue({
     user: localUser,
     accounts: [
       {
@@ -42,7 +51,6 @@ function createHarness(localEmailVerified = true) {
         updatedAt: now,
       },
     ],
-    linkedAccount: null,
   });
 
   const context = {
@@ -52,13 +60,24 @@ function createHarness(localEmailVerified = true) {
           accountLinking: matchingVerifiedEmailAccountLinking,
         },
       },
+      baseURL: "http://localhost:3002",
+      adapter: {
+        // better-auth >= 1.7 wraps user+account creation in a transaction.
+        transaction: async (fn: (trx: unknown) => unknown) => fn({}),
+      },
       trustedProviders: [],
+      socialProviders: [],
       internalAdapter: {
-        findOAuthUser,
+        findAccountOwnerByKey,
+        findAccountByKey,
+        findUserById,
+        findUserByEmail,
         linkAccount,
-        createOAuthUser,
+        createUser,
+        createAccount,
         createSession,
         updateUser,
+        updateAccount,
       },
       logger: {
         error: vi.fn(),
@@ -70,9 +89,11 @@ function createHarness(localEmailVerified = true) {
   return {
     context,
     localUser,
-    findOAuthUser,
+    findAccountOwnerByKey,
+    findUserByEmail,
     linkAccount,
-    createOAuthUser,
+    createUser,
+    createAccount,
     updateUser,
   };
 }
@@ -98,10 +119,7 @@ describe("Better Auth matching-email linking behavior", () => {
   it("links verified Google to the existing verified user", async () => {
     const harness = createHarness();
 
-    const result = await handleOAuthUserInfo(
-      harness.context,
-      googleOptions(),
-    );
+    const result = await handleOAuthUserInfo(harness.context, googleOptions());
 
     expect(result.error).toBeNull();
     expect(result.data?.user.id).toBe(harness.localUser.id);
@@ -112,7 +130,7 @@ describe("Better Auth matching-email linking behavior", () => {
         userId: harness.localUser.id,
       }),
     );
-    expect(harness.createOAuthUser).not.toHaveBeenCalled();
+    expect(harness.createUser).not.toHaveBeenCalled();
     expect(harness.updateUser).not.toHaveBeenCalled();
   });
 
@@ -126,20 +144,17 @@ describe("Better Auth matching-email linking behavior", () => {
 
     expect(result).toMatchObject({ error: "account not linked", data: null });
     expect(harness.linkAccount).not.toHaveBeenCalled();
-    expect(harness.createOAuthUser).not.toHaveBeenCalled();
+    expect(harness.createUser).not.toHaveBeenCalled();
   });
 
   it("rejects linking when the existing local email is not verified", async () => {
     const harness = createHarness(false);
 
-    const result = await handleOAuthUserInfo(
-      harness.context,
-      googleOptions(),
-    );
+    const result = await handleOAuthUserInfo(harness.context, googleOptions());
 
     expect(result).toMatchObject({ error: "account not linked", data: null });
     expect(harness.linkAccount).not.toHaveBeenCalled();
-    expect(harness.createOAuthUser).not.toHaveBeenCalled();
+    expect(harness.createUser).not.toHaveBeenCalled();
   });
 
   it("does not link a Google identity with a different email", async () => {
@@ -149,17 +164,15 @@ describe("Better Auth matching-email linking behavior", () => {
       id: "different-user-789",
       email: "different@example.com",
     };
-    harness.findOAuthUser.mockResolvedValue(null);
-    harness.createOAuthUser.mockResolvedValue({
-      user: differentUser,
-      account: {
-        id: "google-account-789",
-        accountId: "google-user-456",
-        providerId: "google",
-        userId: differentUser.id,
-        createdAt: now,
-        updatedAt: now,
-      },
+    harness.findUserByEmail.mockResolvedValue(null);
+    harness.createUser.mockResolvedValue(differentUser);
+    harness.createAccount.mockResolvedValue({
+      id: "google-account-789",
+      accountId: "google-user-456",
+      providerId: "google",
+      userId: differentUser.id,
+      createdAt: now,
+      updatedAt: now,
     });
 
     const result = await handleOAuthUserInfo(
@@ -169,12 +182,11 @@ describe("Better Auth matching-email linking behavior", () => {
 
     expect(result.error).toBeNull();
     expect(result.data?.user.id).toBe(differentUser.id);
-    expect(harness.findOAuthUser).toHaveBeenCalledWith(
+    expect(harness.findUserByEmail).toHaveBeenCalledWith(
       "different@example.com",
-      "google-user-456",
-      "google",
+      { includeAccounts: true },
     );
     expect(harness.linkAccount).not.toHaveBeenCalled();
-    expect(harness.createOAuthUser).toHaveBeenCalledOnce();
+    expect(harness.createUser).toHaveBeenCalledOnce();
   });
 });

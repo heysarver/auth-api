@@ -79,3 +79,25 @@ databaseChangeLog:
               ALTER TABLE auth.workload_tokens DROP COLUMN IF EXISTS renewal_family_id;
               DROP TABLE IF EXISTS auth.workload_renewal_families;
               ALTER TABLE auth.workload_grants DROP COLUMN IF EXISTS renewable;
+
+  - changeSet:
+      id: marketkit-oauth-provider-177
+      author: sarvent-agent-barbara
+      comment: OPT-IN MarketKit OAuth-provider schema generated from the INSTALLED @better-auth/oauth-provider@1.7.7 plugin schema. Additive only; unused until MARKETKIT_OAUTH_ENABLED=true. requirePKCE defaults TRUE.
+      changes:
+        - sqlFile:
+            path: changes/auth/007-create-oauth-provider-tables.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: true
+            sql: |
+              DROP TABLE IF EXISTS auth.oauthClientAssertions;
+              DROP TABLE IF EXISTS auth.oauthConsents;
+              DROP TABLE IF EXISTS auth.oauthAccessTokens;
+              DROP TABLE IF EXISTS auth.oauthRefreshTokens;
+              DROP TABLE IF EXISTS auth.oauthClientResources;
+              DROP TABLE IF EXISTS auth.oauthResources;
+              DROP TABLE IF EXISTS auth.oauthClients;
