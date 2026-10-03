@@ -8,6 +8,7 @@ import { redis } from "./redis.js";
  import { betterAuthRateLimitCustomRules } from "./rate-limit-policy.js";
  import { createDisabledUserSessionGuard } from "./session-security.js";
  import { buildAdvancedCookieOptions } from "./cookie-config.js";
+import { applyMarketKitOAuthExtension, PROVIDER_PATCHED_FLOOR } from "./marketkit-oauth-provider.js";
  import { matchingVerifiedEmailAccountLinking } from "./account-linking-config.js";
  import { mapGoogleProfile, type GoogleProfile } from "./google-oauth-profile.js";
  import { fetchTimeoutOptions } from "./http-timeout.js";
@@ -115,23 +116,33 @@ export const auth = betterAuth({
   },
 
   // Plugins
-  plugins: [
-    jwt({
-      jwks: {
-        modelName: "jwks", // Explicitly set the model name
-        keyPairConfig: {
-          alg: "RS256", // Use RS256 for better compatibility with python-jose
+  //
+  // OPT-IN OAuth-provider extension (DEFAULT OFF). When MARKETKIT_OAUTH_ENABLED
+  // is not exactly "true" the extender returns this exact array unchanged, so
+  // the shared service keeps its pinned jwt-only behaviour for every existing
+  // consumer. When ON, all clients/scopes/resources/redirects come explicitly
+  // from MARKETKIT_OAUTH_* env (see docs/MARKETKIT_OAUTH_PROVIDER.md).
+  plugins: applyMarketKitOAuthExtension(
+    [
+      jwt({
+        jwks: {
+          modelName: "jwks", // Explicitly set the model name
+          keyPairConfig: {
+            alg: "RS256", // Use RS256 for better compatibility with python-jose
+          },
         },
-      },
-      jwt: {
-        issuer: process.env.BETTER_AUTH_URL || "http://localhost:3002",
-        audience: process.env.JWT_AUDIENCE || process.env.BETTER_AUTH_URL || "http://localhost:3002",
-        expirationTime: "24h",
-        // Bind every bearer JWT to its durable Better Auth session revision.
-        definePayload: ({ session }) => ({ jti: session.id }),
-      },
-    }),
-  ],
+        jwt: {
+          issuer: process.env.BETTER_AUTH_URL || "http://localhost:3002",
+          audience: process.env.JWT_AUDIENCE || process.env.BETTER_AUTH_URL || "http://localhost:3002",
+          expirationTime: "24h",
+          // Bind every bearer JWT to its durable Better Auth session revision.
+          definePayload: ({ session }) => ({ jti: session.id }),
+        },
+      }),
+    ],
+    process.env,
+    process.env.MARKETKIT_OAUTH_PROVIDER_VERSION || PROVIDER_PATCHED_FLOOR,
+  ),
 
   // Email/password authentication
   // M9: unverified emails must not sign in. Default ON (fail-safe) so a
