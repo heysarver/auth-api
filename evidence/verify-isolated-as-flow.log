@@ -1,0 +1,106 @@
+== 1. isolated postgres + redis ==
+== 2. apply schema (shared base + opt-in provider + opt-in align) ==
+psql:<stdin>:17: NOTICE:  trigger "revoke_sessions_when_user_disabled" for relation "auth.users" does not exist, skipping
+psql:<stdin>:47: NOTICE:  trigger "reject_session_for_disabled_user" for relation "auth.sessions" does not exist, skipping
+      table_name      
+----------------------
+ accounts
+ jwks
+ oauthAccessToken
+ oauthClient
+ oauthClientAssertion
+ oauthClientResource
+ oauthConsent
+ oauthRefreshToken
+ oauthResource
+ sessions
+ users
+ verifications
+(12 rows)
+
+== 3. build extension image ==
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.marketkit
+#1 transferring dockerfile: 2.24kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:24-alpine
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 517B done
+#3 DONE 0.0s
+
+#4 [builder 1/6] FROM docker.io/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+#4 resolve docker.io/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 0.0s done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 11.45kB done
+#5 DONE 0.0s
+
+#6 [builder 3/6] COPY package*.json ./
+#6 CACHED
+
+#7 [builder 2/6] WORKDIR /app
+#7 CACHED
+
+#8 [builder 4/6] RUN npm ci &&     npm install --no-audit --no-fund       "better-auth@1.7.7"       "@better-auth/oauth-provider@1.7.7"
+#8 CACHED
+
+#9 [builder 5/6] COPY . .
+#9 DONE 0.0s
+
+#10 [builder 6/6] RUN npm run build
+#10 0.380 
+#10 0.380 > auth-api@1.0.0 build
+#10 0.380 > tsc
+#10 0.380 
+#10 DONE 5.6s
+
+#11 [production 4/6] COPY package*.json ./
+#11 CACHED
+
+#12 [production 5/6] RUN npm ci --omit=dev &&     npm install --no-audit --no-fund       "better-auth@1.7.7"       "@better-auth/oauth-provider@1.7.7" &&     npm cache clean --force
+#12 CACHED
+
+#13 [production 2/6] RUN addgroup -g 1001 -S nodejs &&     adduser -S nodejs -u 1001
+#13 CACHED
+
+#14 [production 3/6] WORKDIR /app
+#14 CACHED
+
+#15 [production 6/6] COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+#15 CACHED
+
+#16 exporting to image
+#16 exporting layers done
+#16 exporting manifest sha256:a1af45910c9d5a8889635410375f658ef347cac88bcdb779ebf3bae20551ba40 done
+#16 exporting config sha256:84b496e1faa53bdb562ca5293a73dc3f97b44efbe2433fb0e45d1d25836f3606 done
+#16 exporting attestation manifest sha256:10822fdaf5394d84fda95ec18ab9e761fb307a85792ce881227f0dfb418363f6 done
+#16 exporting manifest list sha256:2892fbf09675fd7ca7b47a3319d56aa01f0e6d13cb2f5b4fd2b0003eadac7bd4 done
+#16 naming to docker.io/marketkit/auth-api:boothwright-as-verify done
+#16 unpacking to docker.io/marketkit/auth-api:boothwright-as-verify done
+#16 DONE 0.1s
+== 4. boot container (extension ON) ==
+== 5. health + discovery ==
+{"status":"healthy","service":"auth-api","database":true,"timestamp":"2026-10-07T05:03:23.859Z"}
+{"scopes_supported":["mcp:tools","mcp:artifacts:read","offline_access"],"issuer":"http://localhost:13002","authorization_endpoint":"http://localhost:13002/oauth2/authorize","token_endpoint":"http://localhost:13002/oauth2/token","jwks_uri":"http://localhost:13002/jwks","introspection_endpoint":"http://localhost:13002/oauth2/introspect","revocation_endpoint":"http://localhost:13002/oauth2/revoke","r
+== 6. seed the configured client (resource was auto-seeded at boot) ==
+INSERT 0 1
+INSERT 0 1
+== 7. live signed-token flow ==
+  ok - live sign-up 200 (got 200)
+  live user id: bGvlHkO2eXXWUW36yHeF7eZnc6gqiDc6
+  ok - live authorize 200/302 (got 200)
+  ok - authorization code issued to the registered redirect
+  ok - live token 200 + access_token (got 200)
+  ok - iss == http://localhost:13002
+  ok - aud == https://mcp.marketkit.example
+  ok - client_id == marketkit-mcp
+  ok - sub == live user id (bGvlHkO2eXXWUW36yHeF7eZnc6gqiDc6)
+  ok - granted scope == configured set
+
+LIVE-CONTAINER-FLOW: PASS
+ALL CHECKS PASSED
