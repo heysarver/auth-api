@@ -241,6 +241,21 @@ if (workloadConfig.enabled) {
   }));
 }
 
+// Dedicated opt-in AS browser surfaces. Shared service routes remain untouched.
+const boothwrightBrowserEnabled = process.env.BOOTHWRIGHT_BROWSER_ENABLED === "true";
+if (boothwrightBrowserEnabled) {
+  if (process.env.MARKETKIT_OAUTH_ENABLED !== "true") throw new Error("Boothwright browser requires enabled OAuth provider");
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) throw new Error("Boothwright browser requires dedicated Google configuration");
+  const { createBoothwrightBrowserHandler } = await import("./lib/boothwright-browser.js");
+  const { resolveMarketKitOAuthConfig } = await import("./lib/marketkit-oauth-provider.js");
+  const browser = createBoothwrightBrowserHandler({ enabled: true, auth,
+    baseURL: process.env.BETTER_AUTH_URL, secret: process.env.BETTER_AUTH_SECRET,
+    config: resolveMarketKitOAuthConfig()!,
+  });
+  app.all(["/login", "/consent"], toNodeHandler(async (request: Request) =>
+    (await browser(request)) || new Response("Not found", { status: 404 })));
+}
+
 // Turnstile verification middleware (after /health, before Better Auth)
 // Subdomain routing: auth is on auth.domain.com with root paths
 // IMPORTANT: Excludes authenticated endpoints from Turnstile verification

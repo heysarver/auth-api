@@ -83,6 +83,7 @@ const auth = betterAuth({
   basePath: "/",
   secret: "k".repeat(48),
   emailAndPassword: { enabled: true },
+  socialProviders: { google: { clientId: 'bounded-google-fixture', clientSecret: 'bounded-not-a-real-secret', getUserInfo: async () => ({ user: { name: 'Browser Fixture', email: 'google-browser@marketkit.example', emailVerified: true }, data: { sub: 'google-fixture-user', name: 'Browser Fixture', email: 'google-browser@marketkit.example', email_verified: true, iss: 'https://accounts.google.com', aud: 'bounded-google-fixture', azp: 'bounded-google-fixture', iat: 1, exp: 9999999999, picture: '', given_name: 'Browser', family_name: 'Fixture', locale: 'en' } }) } },
   user: { modelName: "users" },
   session: { modelName: "sessions", storeSessionInDatabase: true },
   account: { modelName: "accounts" },
@@ -242,6 +243,74 @@ async function codeFor(cookie: string, opts: AuthorizeOptions = {}) {
   expect(code).toBeTruthy();
   return { code: code as string, verifier };
 }
+
+import { createBoothwrightBrowserHandler } from '../../lib/boothwright-browser.js';
+const browser = createBoothwrightBrowserHandler({ enabled: true, baseURL: BASE_URL, secret: 'k'.repeat(48), config: CONFIG, auth });
+
+it('browser rejects unsigned continuation before rendering', async () => {
+ expect((await browser(new Request(`${BASE_URL}/login?client_id=${CLIENT_ID}`)))?.status).toBe(400);
+});
+
+it('real provider anonymous login continuation is preserved, consent is explicit and session/CSRF bound', async () => {
+ seedClient(false);
+ const { res, verifier } = await authorize('');
+ const login = new URL(res.headers.get('location')!, BASE_URL);
+ expect(login.pathname).toBe('/login');
+ const page = await browser(new Request(login));
+ expect(page?.status).toBe(200);
+ const html = await page!.text();
+ expect(html).toContain('Continue with Google');
+ const loginTicket = html.match(/name="ticket" value="([^"]+)"/)![1];
+ const loginCookie = page!.headers.get('set-cookie')!.split(';')[0];
+ const google = await browser(new Request(`${BASE_URL}/login`, { method:'POST', headers:{ origin:BASE_URL, cookie:loginCookie, 'content-type':'application/x-www-form-urlencoded' }, body:new URLSearchParams({ticket:loginTicket}) }));
+ expect(google?.status).toBe(303);
+ const googleURL = new URL(google!.headers.get('location')!);
+ expect(googleURL.origin).toBe('https://accounts.google.com');
+ expect(googleURL.searchParams.get('redirect_uri')).toBe(BASE_URL+'/callback/google');
+ const unsigned = new URL(login); unsigned.searchParams.set('returnTo','https://evil.example');
+ expect((await browser(new Request(unsigned)))?.status).toBe(400);
+ vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(Date.now()+86400000);
+ try { expect((await browser(new Request(login)))?.status).toBe(400); } finally { vi.useRealTimers(); }
+ const tampered = new URL(login); tampered.searchParams.set('resource', OTHER_RESOURCE);
+ expect((await browser(new Request(tampered)))?.status).toBe(400);
+ // Bounded Google token/profile fixtures; exercise the real callback/state hook without network.
+ const network = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+  const endpoint = String(input instanceof Request ? input.url : input);
+  if (endpoint !== 'https://oauth2.googleapis.com/token') throw new Error('Unexpected fixture network: '+endpoint);
+  return new Response(JSON.stringify({access_token:'bounded-google-access',token_type:'Bearer',expires_in:3600}),{headers:{'content-type':'application/json'}});
+ });
+ let callback: Response;
+ try {
+  callback = await auth.handler(new Request(`${BASE_URL}/callback/google?code=bounded-code&state=${googleURL.searchParams.get('state')}`, {headers:{cookie:google!.headers.getSetCookie().map(c=>c.split(';')[0]).join('; '),accept:'text/html'}}));
+ } finally { network.mockRestore(); }
+ expect(callback.status).toBe(302);
+ const session = { cookie: callback.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ') };
+ const consent = new URL(callback.headers.get('location')!, BASE_URL);
+ expect(consent.pathname).toBe('/consent');
+ expect((await browser(new Request(consent)))?.status).toBe(401);
+ const rendered = await browser(new Request(consent, { headers: { cookie: session.cookie } }));
+ expect(rendered?.status).toBe(200);
+ const consentHtml = await rendered!.text();
+ const ticket = consentHtml.match(/name="ticket" value="([^"]+)"/)![1];
+ const csrfCookie = rendered!.headers.get('set-cookie')!.split(';')[0];
+ const post = (decision: string, cookie: string) => browser(new Request(`${BASE_URL}/consent`, { method: 'POST', headers: { origin: BASE_URL, cookie, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ ticket, decision }) }));
+ expect((await post('allow', session.cookie))?.status).toBe(403);
+ const otherSession = await signUp('other-browser@marketkit.example');
+ expect((await post('allow', `${otherSession.cookie}; ${csrfCookie}`))?.status).toBe(403);
+ const forged = new Request(`${BASE_URL}/consent`, {method:'POST',headers:{origin:BASE_URL,cookie:`${session.cookie}; ${csrfCookie}`,'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({ticket:ticket.slice(0,-1)+'x',decision:'allow'})});
+ expect((await browser(forged))?.status).toBe(400);
+ const denied = await post('deny', `${session.cookie}; ${csrfCookie}`);
+ expect(denied?.headers.get('location')).toContain('error=access_denied');
+ const accepted = await post('allow', `${session.cookie}; ${csrfCookie}`);
+ expect(accepted?.status).toBe(303);
+ const code = new URL(accepted!.headers.get('location')!).searchParams.get('code')!;
+ const exchanged = await exchange(code, verifier);
+ expect(exchanged.status).toBe(200);
+ const claims = await verifyAgainstLiveJwks(exchanged.body.access_token as string);
+ const identity = await auth.handler(new Request(`${BASE_URL}/get-session`,{headers:{cookie:session.cookie}}));
+ expect(claims.sub).toBe(((await identity.json()) as {user:{id:string}}).user.id);
+ db.oauthClient.length = 0; db.oauthClientResource.length = 0; db.oauthResource.length = 0;
+});
 
 describe("marketkit oauth provider — REAL isolated flow (better-auth 1.7.7)", () => {
   let cookie: string;
