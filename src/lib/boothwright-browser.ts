@@ -15,7 +15,8 @@ export function createBoothwrightBrowserHandler(o: Options) {
   if (!o.enabled) return null;
   const url = new URL(request.url);
   if (!['/login','/consent'].includes(url.pathname)) return null;
-  const response = (body: string, status = 200, extra: Record<string,string> = {}) => new Response(body, { status, headers: { 'cache-control':'no-store', 'referrer-policy':'no-referrer', 'content-type':'text/html; charset=utf-8', 'content-security-policy':"default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", ...extra } });
+  const formDestinations = url.pathname === '/login' ? 'https://accounts.google.com' : o.config!.redirectUris.map(r => new URL(r).origin).join(' ');
+  const response = (body: string, status = 200, extra: Record<string,string> = {}) => new Response(body, { status, headers: { 'cache-control':'no-store', 'referrer-policy':'same-origin', 'content-type':'text/html; charset=utf-8', 'content-security-policy':`default-src 'none'; form-action 'self' ${formDestinations}; frame-ancestors 'none'; base-uri 'none'`, ...extra } });
   try {
    if (url.origin !== new URL(o.baseURL!).origin) return response('Invalid origin',400);
    let query = url.search.slice(1); let ticket: any; let decision: string | null = null;
@@ -57,7 +58,9 @@ export function createBoothwrightBrowserHandler(o: Options) {
    const data = await result.json() as { url?: string };
    if (!result.ok || !data.url) return response('Provider rejected request',400);
    const target = new URL(data.url, o.baseURL);
-   if (url.pathname === '/login' ? target.origin !== 'https://accounts.google.com' : !o.config!.redirectUris.some(r=>target.origin === new URL(r).origin && target.pathname === new URL(r).pathname)) return response('Unsafe provider redirect',400);
+   const registered = new URL(params.get('redirect_uri')!);
+   const safeConsentRedirect = target.origin === registered.origin && target.pathname === registered.pathname && target.hash === registered.hash && [...registered.searchParams].every(([key, value]) => target.searchParams.getAll(key).length === registered.searchParams.getAll(key).length && target.searchParams.getAll(key).includes(value));
+   if (target.username || target.password || (url.pathname === '/login' ? target.origin !== 'https://accounts.google.com' : !safeConsentRedirect)) return response('Unsafe provider redirect',400);
    const redirect = response('',303,{location:target.toString()});
    for (const cookie of result.headers.getSetCookie()) redirect.headers.append('set-cookie', cookie);
    return redirect;

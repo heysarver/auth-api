@@ -301,6 +301,9 @@ it('real provider anonymous login continuation is preserved, consent is explicit
  expect((await browser(forged))?.status).toBe(400);
  const denied = await post('deny', `${session.cookie}; ${csrfCookie}`);
  expect(denied?.headers.get('location')).toContain('error=access_denied');
+ // A compromised/misconfigured provider response must not escape the exact requested redirect.
+ const unsafeBrowser = createBoothwrightBrowserHandler({ enabled:true, baseURL:BASE_URL, secret:'k'.repeat(48), config:CONFIG, auth:{ handler:async request => request.url.endsWith('/oauth2/consent') ? new Response(JSON.stringify({url:'https://attacker@ mcp.marketkit.example/callback'.replace('@ ', '@')+'?code=leak'}),{headers:{'content-type':'application/json'}}) : auth.handler(request) } });
+ expect((await unsafeBrowser(new Request(`${BASE_URL}/consent`, {method:'POST',headers:{origin:BASE_URL,cookie:`${session.cookie}; ${csrfCookie}`,'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({ticket,decision:'allow'})})))?.status).toBe(400);
  const accepted = await post('allow', `${session.cookie}; ${csrfCookie}`);
  expect(accepted?.status).toBe(303);
  const code = new URL(accepted!.headers.get('location')!).searchParams.get('code')!;
