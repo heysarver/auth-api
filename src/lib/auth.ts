@@ -113,9 +113,9 @@ export const auth = betterAuth({
     // better-auth >= 1.7 requires these on SecondaryStorage. Implemented on top
     // of the existing Redis client so the shared session store is unchanged.
     getAndDelete: async (key) => {
-      const value = await redis.get(key);
-      if (value !== null) await redis.del(key);
-      return value;
+      // Single-use verification (including OAuth codes) must be consumed atomically.
+      // Fail closed if the server does not support GETDEL; never fall back to GET/DEL.
+      return await redis.getdel(key);
     },
     increment: async (key, ttl) => {
       const value = await redis.incr(key);
