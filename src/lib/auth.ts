@@ -11,6 +11,7 @@ import { redis } from "./redis.js";
  import { matchingVerifiedEmailAccountLinking } from "./account-linking-config.js";
  import { mapGoogleProfile, type GoogleProfile } from "./google-oauth-profile.js";
  import { fetchTimeoutOptions } from "./http-timeout.js";
+ import { isEmailVerificationRequired } from "./email-verification-policy.js";
 
 // OAuth profile types for type-safe access
 interface GitHubProfile {
@@ -138,7 +139,7 @@ export const auth = betterAuth({
   // misconfigured deploy cannot silently allow unverified sign-ins.
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION !== 'false',
+    requireEmailVerification: isEmailVerificationRequired(),
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url, token }) => {
       await sendPasswordResetEmail(user.email, url, token);

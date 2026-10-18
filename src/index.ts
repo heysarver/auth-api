@@ -16,20 +16,21 @@ import { toNodeHandler } from "better-auth/node";
 import { auth, pool } from "./lib/auth.js";
 import { redis, registerCleanupHandlers } from "./lib/redis.js";
 import { validateTurnstileToken } from "./middleware/turnstile.js";
-import {
-  createPostgresSessionActivityChecker,
-  createBetterAuthJwtVerifier,
-  createTokenIntrospectionParseErrorHandler,
-  createTokenIntrospectionHandler,
-  createTokenIntrospectionRateLimitHandler,
-  tokenIntrospectionRateLimitHandler,
-} from "./lib/token-introspection.js";
-import { loadWorkloadConfig } from "./lib/workload-config.js";
-import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
-import { createPostgresWorkloadStore } from "./lib/workload-store.js";
-import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
-import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
-import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
+ import {
+   createPostgresSessionActivityChecker,
+   createBetterAuthJwtVerifier,
+   createTokenIntrospectionParseErrorHandler,
+   createTokenIntrospectionHandler,
+   createTokenIntrospectionRateLimitHandler,
+   tokenIntrospectionRateLimitHandler,
+ } from "./lib/token-introspection.js";
+ import { loadWorkloadConfig } from "./lib/workload-config.js";
+ import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
+ import { createPostgresWorkloadStore } from "./lib/workload-store.js";
+ import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
+ import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
+ import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
+ import { getPublicAuthPolicy } from "./lib/email-verification-policy.js";
 
 // Register Redis cleanup handlers for graceful shutdown
 registerCleanupHandlers();
@@ -139,6 +140,15 @@ app.get("/health", async (_req, res) => {
   };
   lastHealthCheck = now;
   return res.json(cachedHealthResult);
+});
+
+// Public auth policy contract.
+// The dashboard reads this instead of inferring enforcement from email_verified,
+// which stays false for local accounts even when the server does not require
+// verification. Fail-safe default is enforced in email-verification-policy.ts.
+app.get("/config/policy", (_req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=60");
+  return res.json(getPublicAuthPolicy());
 });
 
 // Rate limiting (with trust proxy configuration for Kubernetes ingress)
