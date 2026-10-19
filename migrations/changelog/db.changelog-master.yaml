@@ -79,3 +79,11 @@ databaseChangeLog:
               ALTER TABLE auth.workload_tokens DROP COLUMN IF EXISTS renewal_family_id;
               DROP TABLE IF EXISTS auth.workload_renewal_families;
               ALTER TABLE auth.workload_grants DROP COLUMN IF EXISTS renewable;
+
+  # The OPT-IN MarketKit OAuth-provider schema (changeSet marketkit-oauth-provider-177)
+  # is deliberately NOT auto-applied here. It is staged in a SEPARATE changelog so
+  # that a live authorization-server migration never runs as a side effect of the
+  # shared service's default migrate step; it is applied only when the extension is
+  # explicitly enabled. See changes/marketkit-oauth/README.md and
+  # db.changelog-marketkit-oauth.yaml.
+

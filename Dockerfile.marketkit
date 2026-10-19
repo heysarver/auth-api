@@ -1,0 +1,61 @@
+# MarketKit-owned auth-api image — OPTIONAL OAuth-provider extension build.
+#
+# This is the ONLY build that installs `@better-auth/oauth-provider`. The shared
+# public auth-api identity service (Dockerfile / Dockerfile.dev) stays on its
+# pinned better-auth 1.6.23 with no provider dependency and never enables the
+# extension. Registry target: marketkit/auth-api:<tag>.
+#
+# Pins (verified compatible pair; gate requires >= 1.7.7 — GHSA-p2fr-6hmx-4528):
+#   better-auth                 1.7.7
+#   @better-auth/oauth-provider 1.7.7   (peer: better-auth ^1.7.7)
+#
+# At runtime the extension is inert unless MARKETKIT_OAUTH_ENABLED=true, so the
+# default behaviour of this image is the pinned base service.
+ARG NODE_VERSION=24-alpine
+FROM node:${NODE_VERSION} AS builder
+
+WORKDIR /app
+
+# Pin the extension dependency pair explicitly (exact versions, no ranges).
+ARG BETTER_AUTH_VERSION=1.7.7
+ARG MARKETKIT_OAUTH_PROVIDER_VERSION=1.7.7
+
+COPY package*.json ./
+# Install the base tree, then force the exact compatible provider pair. --save
+# is intentionally omitted: reproducibility comes from the ARG pins, and the
+# base package.json stays the source of truth for the shared service.
+RUN npm ci && \
+    npm install --no-audit --no-fund \
+      "better-auth@${BETTER_AUTH_VERSION}" \
+      "@better-auth/oauth-provider@${MARKETKIT_OAUTH_PROVIDER_VERSION}"
+
+COPY . .
+RUN npm run build
+
+FROM node:${NODE_VERSION} AS production
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+WORKDIR /app
+
+ARG BETTER_AUTH_VERSION=1.7.7
+ARG MARKETKIT_OAUTH_PROVIDER_VERSION=1.7.7
+
+COPY package*.json ./
+RUN npm ci --omit=dev && \
+    npm install --no-audit --no-fund \
+      "better-auth@${BETTER_AUTH_VERSION}" \
+      "@better-auth/oauth-provider@${MARKETKIT_OAUTH_PROVIDER_VERSION}" && \
+    npm cache clean --force
+
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+
+USER nodejs
+EXPOSE 3002
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3002/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+
+STOPSIGNAL SIGTERM
+CMD ["node", "--import", "./dist/instrumentation.js", "dist/index.js"]

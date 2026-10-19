@@ -1,0 +1,16 @@
+2026-10-07T04:58:49.775Z WARN [Better Auth]: [better-auth] Warning: your BETTER_AUTH_SECRET appears low-entropy. Use a randomly generated secret for production.
+DISCOVERY_PATH: /.well-known/oauth-authorization-server
+issuer: http://localhost:3002
+authorization_endpoint: http://localhost:3002/oauth2/authorize
+token_endpoint: http://localhost:3002/oauth2/token
+jwks_uri: http://localhost:3002/jwks
+code_challenge_methods_supported: ["S256"]
+scopes_supported: ["mcp:tools","mcp:artifacts:read","offline_access"]
+resource_parameter: true
+grant_types_supported: ["authorization_code","client_credentials","refresh_token"]
+
+CHECK issuer==BASE_URL: true
+CHECK endpoints under BASE_URL: true
+CHECK S256 advertised: true
+
+DISCOVERY: PASS
