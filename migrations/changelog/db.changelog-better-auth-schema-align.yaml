@@ -1,0 +1,32 @@
+databaseChangeLog:
+  # OPT-IN base-schema alignment ONLY.
+  #
+  # NOT referenced by db.changelog-master.yaml: applying the shared service's
+  # default migrate step is unchanged. Apply this explicitly when standing up a
+  # DEDICATED Better Auth / OAuth-provider deployment against a fresh isolated
+  # PostgreSQL, so better-auth 1.7.7's runtime schema check passes:
+  #
+  #   liquibase --changeLogFile=migrations/changelog/db.changelog-better-auth-schema-align.yaml \
+  #             --url="$DATABASE_URL" update
+  #
+  # See docs/BOOTHWRIGHT_AS_VERIFICATION.md (finding AS-VER-3) and
+  # scripts/verify-isolated-as-flow.sh.
+
+  - changeSet:
+      id: marketkit-ba-schema-align-177
+      author: sarvent-agent-hermes
+      comment: Align shared base auth tables with better-auth 1.7.7 metadata (jwks.expiresAt/alg/crv, users.organizationId). Additive, idempotent. Required for a fresh isolated Better Auth deployment to stop returning SCHEMA_MISMATCH.
+      changes:
+        - sqlFile:
+            path: changes/auth/008-align-better-auth-177-schema.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: true
+            sql: |
+              ALTER TABLE auth.users DROP COLUMN IF EXISTS "organizationId";
+              ALTER TABLE auth.jwks DROP COLUMN IF EXISTS "crv";
+              ALTER TABLE auth.jwks DROP COLUMN IF EXISTS "alg";
+              ALTER TABLE auth.jwks DROP COLUMN IF EXISTS "expiresAt";

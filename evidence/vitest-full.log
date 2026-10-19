@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /home/asarver/workspace/auth-api-boothwright-as-verify
+
+
+ Test Files  30 passed (30)
+      Tests  387 passed (387)
+   Start at  01:03:32
+   Duration  3.77s (transform 1.51s, setup 787ms, import 6.51s, tests 3.09s, environment 4ms)
+

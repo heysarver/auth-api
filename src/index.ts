@@ -206,7 +206,12 @@ app.post(
   createTokenIntrospectionHandler({
     machineToken: process.env.TOKEN_INTROSPECTION_BEARER_TOKEN,
     clientId: tokenIntrospectionClientId,
-    verifyToken: createBetterAuthJwtVerifier(auth.api),
+    verifyToken: createBetterAuthJwtVerifier(
+      // better-auth >= 1.7 leaves jwt-plugin endpoints out of `auth.api`'s
+      // inferred type on some configs even though they are present at runtime
+      // (verified: `verifyJWT`/`signJWT` are on the object). Localize the cast.
+      auth.api as unknown as Parameters<typeof createBetterAuthJwtVerifier>[0],
+    ),
     isSessionActive: createPostgresSessionActivityChecker(pool),
   }),
 );
@@ -231,7 +236,11 @@ if (workloadConfig.enabled) {
     renewalTtlSeconds: workloadConfig.renewalTtlSeconds,
     renewalIdempotencyTtlSeconds: workloadConfig.renewalIdempotencyTtlSeconds,
   });
-  const workloadTokens = createBetterAuthWorkloadTokenAdapter(auth.api, pool, workloadConfig);
+  const workloadTokens = createBetterAuthWorkloadTokenAdapter(
+    auth.api as unknown as Parameters<typeof createBetterAuthWorkloadTokenAdapter>[0],
+    pool,
+    workloadConfig,
+  );
   app.use(createWorkloadRouter({
     config: workloadConfig,
     store: workloadStore,
@@ -240,6 +249,21 @@ if (workloadConfig.enabled) {
     verifyToken: workloadTokens.verifyToken,
     limiter: workloadLimiter,
   }));
+}
+
+// Dedicated opt-in AS browser surfaces. Shared service routes remain untouched.
+const boothwrightBrowserEnabled = process.env.BOOTHWRIGHT_BROWSER_ENABLED === "true";
+if (boothwrightBrowserEnabled) {
+  if (process.env.MARKETKIT_OAUTH_ENABLED !== "true") throw new Error("Boothwright browser requires enabled OAuth provider");
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) throw new Error("Boothwright browser requires dedicated Google configuration");
+  const { createBoothwrightBrowserHandler } = await import("./lib/boothwright-browser.js");
+  const { resolveMarketKitOAuthConfig } = await import("./lib/marketkit-oauth-provider.js");
+  const browser = createBoothwrightBrowserHandler({ enabled: true, auth,
+    baseURL: process.env.BETTER_AUTH_URL, secret: process.env.BETTER_AUTH_SECRET,
+    config: resolveMarketKitOAuthConfig()!,
+  });
+  app.all(["/login", "/consent"], toNodeHandler(async (request: Request) =>
+    (await browser(request)) || new Response("Not found", { status: 404 })));
 }
 
 // Turnstile verification middleware (after /health, before Better Auth)

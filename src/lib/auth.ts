@@ -8,19 +8,17 @@ import { redis } from "./redis.js";
  import { betterAuthRateLimitCustomRules } from "./rate-limit-policy.js";
  import { createDisabledUserSessionGuard } from "./session-security.js";
  import { buildAdvancedCookieOptions } from "./cookie-config.js";
+import { applyMarketKitOAuthExtension } from "./marketkit-oauth-provider.js";
  import { matchingVerifiedEmailAccountLinking } from "./account-linking-config.js";
  import { mapGoogleProfile, type GoogleProfile } from "./google-oauth-profile.js";
  import { fetchTimeoutOptions } from "./http-timeout.js";
  import { isEmailVerificationRequired } from "./email-verification-policy.js";
 
-// OAuth profile types for type-safe access
-interface GitHubProfile {
-  id: number;
-  name: string | null;
-  login: string;
-  email: string | null;
-  avatar_url: string;
-}
+// OAuth profile types for type-safe access.
+// better-auth >= 1.7 types `getUserInfo().data` with the provider's own profile
+// shape (which carries the numeric `id`); import it rather than re-declaring a
+// narrower local interface.
+import type { GithubProfile as GitHubProfile } from "@better-auth/core/social-providers";
 
 interface GitHubEmail {
   email: string;
@@ -113,26 +111,49 @@ export const auth = betterAuth({
     delete: async (key) => {
       await redis.del(key);
     },
+    // better-auth >= 1.7 requires these on SecondaryStorage. Implemented on top
+    // of the existing Redis client so the shared session store is unchanged.
+    getAndDelete: async (key) => {
+      // Single-use verification (including OAuth codes) must be consumed atomically.
+      // Fail closed if the server does not support GETDEL; never fall back to GET/DEL.
+      return await redis.getdel(key);
+    },
+    increment: async (key, ttl) => {
+      const value = await redis.incr(key);
+      if (ttl) await redis.expire(key, ttl);
+      return value;
+    },
   },
 
   // Plugins
-  plugins: [
-    jwt({
-      jwks: {
-        modelName: "jwks", // Explicitly set the model name
-        keyPairConfig: {
-          alg: "RS256", // Use RS256 for better compatibility with python-jose
+  //
+  // OPT-IN OAuth-provider extension (DEFAULT OFF). When MARKETKIT_OAUTH_ENABLED
+  // is not exactly "true" the extender returns this exact array unchanged, so
+  // the shared service keeps its pinned jwt-only behaviour for every existing
+  // consumer. When ON, all clients/scopes/resources/redirects come explicitly
+  // from MARKETKIT_OAUTH_* env and the REAL oauthProvider() plugin is composed
+  // (see docs/MARKETKIT_OAUTH_PROVIDER.md). The compatibility gate reads the
+  // installed provider version from the plugin runtime itself — never an env var.
+  plugins: applyMarketKitOAuthExtension(
+    [
+      jwt({
+        jwks: {
+          modelName: "jwks", // Explicitly set the model name
+          keyPairConfig: {
+            alg: "RS256", // Use RS256 for better compatibility with python-jose
+          },
         },
-      },
-      jwt: {
-        issuer: process.env.BETTER_AUTH_URL || "http://localhost:3002",
-        audience: process.env.JWT_AUDIENCE || process.env.BETTER_AUTH_URL || "http://localhost:3002",
-        expirationTime: "24h",
-        // Bind every bearer JWT to its durable Better Auth session revision.
-        definePayload: ({ session }) => ({ jti: session.id }),
-      },
-    }),
-  ],
+        jwt: {
+          issuer: process.env.BETTER_AUTH_URL || "http://localhost:3002",
+          audience: process.env.JWT_AUDIENCE || process.env.BETTER_AUTH_URL || "http://localhost:3002",
+          expirationTime: "24h",
+          // Bind every bearer JWT to its durable Better Auth session revision.
+          definePayload: ({ session }) => ({ jti: session.id }),
+        },
+      }),
+    ],
+    process.env,
+  ),
 
   // Email/password authentication
   // M9: unverified emails must not sign in. Default ON (fail-safe) so a
@@ -284,7 +305,8 @@ export const auth = betterAuth({
 
           return {
             user: {
-              id: String(profile.id),
+              // better-auth >= 1.7 forbids a provider `id` in mapped user info;
+              // the raw GitHub profile (with its numeric id) travels in `data`.
               name: profile.name || profile.login,
               email: email,
               image: profile.avatar_url,
