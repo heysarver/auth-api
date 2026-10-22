@@ -36,7 +36,7 @@
     "ioredis": "^5.11.1",
     "jose": "6.2.3",
     "jsonwebtoken": "^9.0.2",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.0.10",
     "pg": "^8.22.0",
     "rate-limit-redis": "^5.0.0"
   },
