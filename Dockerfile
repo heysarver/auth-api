@@ -2,7 +2,7 @@
 # Multi-stage build for optimized final image size
 
 # Stage 1: Build
-ARG NODE_VERSION=24-alpine
+ARG NODE_VERSION=24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
 FROM node:${NODE_VERSION} AS builder
 
 WORKDIR /app
