@@ -2,7 +2,10 @@
 # Multi-stage build for optimized final image size
 
 # Stage 1: Build
-ARG NODE_VERSION=24-alpine
+# Pinned patch release. A floating major (24-alpine) lets two builds of the
+# same commit ship different runtimes, which breaks reproducible images and
+# makes a runtime regression impossible to bisect.
+ARG NODE_VERSION=24.22.2-alpine
 FROM node:${NODE_VERSION} AS builder
 
 WORKDIR /app
