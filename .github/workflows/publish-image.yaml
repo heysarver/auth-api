@@ -34,7 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      IMAGE: registry.sarvent.cloud/auth-api/auth-api
+      IMAGE_STAGING: registry.sarvent.cloud/feedvalue-staging/auth-api
+      IMAGE_PROD: registry.sarvent.cloud/feedvalue-prod/auth-api
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,11 +64,14 @@ jobs:
               dockerfile = pathlib.Path('Dockerfile').read_text()
               node = re.search(r'^ARG NODE_VERSION=(\d+)-alpine$', dockerfile, re.M).group(1)
           tags = [tag, sha, f'{tag}-{sha}']
+          images = [os.environ['IMAGE_STAGING'], os.environ['IMAGE_PROD']]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               for key, value in {'version': tag, 'sha': sha, 'node': node, 'created': datetime.datetime.now(datetime.timezone.utc).isoformat()}.items():
                   print(f'{key}={value}', file=output)
               print('tags<<IMAGE_TAGS', file=output)
-              print('\n'.join(os.environ['IMAGE'] + ':' + t for t in tags), file=output)
+              for image in images:
+                  for name in tags:
+                      print(image + ':' + name, file=output)
               print('IMAGE_TAGS', file=output)
           PY
       - uses: actions/setup-node@v4
@@ -88,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$HARBOR_USERNAME" || -z "$HARBOR_PASSWORD" ]]; then
-            echo '::error::Missing HARBOR_USERNAME or HARBOR_PASSWORD. Configure repository secrets for the auth-api Harbor project.'
+            echo '::error::Missing HARBOR_USERNAME or HARBOR_PASSWORD. Configure repository secrets for the feedvalue-staging and feedvalue-prod Harbor projects.'
             exit 1
           fi
       - uses: docker/setup-buildx-action@v3
@@ -122,4 +126,6 @@ jobs:
       - name: Record consumer digest
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
-        run: printf '%s@%s\n' "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          printf '%s@%s\n' "$IMAGE_STAGING" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s@%s\n' "$IMAGE_PROD" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

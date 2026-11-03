@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Read-only Harbor preflight.  Only an authenticated artifact 404 means new.
+"""Read-only Harbor preflight for both FeedValue target repositories.
 
-Never log credentials, response bodies, or Authorization headers.  Global
-workflow concurrency serializes this publisher; Harbor immutable-tag rules
-must also protect against writers outside this workflow.
+Only an authenticated artifact 404 means new.  Never log credentials, response
+bodies, or Authorization headers.  Global workflow concurrency serializes
+this publisher.  Neither FeedValue project currently has an immutable-tag
+rule, so this guard is the enforcement for writers inside this workflow.
 """
 import base64
 import json
@@ -11,6 +12,13 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# Both FeedValue environment projects own their own auth-api repository.
+# There is no shared public auth-api project and none is created here.
+TARGET_REPOSITORIES = (
+    ('feedvalue-staging', 'auth-api'),
+    ('feedvalue-prod', 'auth-api'),
+)
 
 
 def main():
@@ -32,15 +40,23 @@ def main():
         except (urllib.error.URLError, ValueError):
             raise SystemExit('Harbor preflight unavailable or invalid response; refusing publish') from None
 
-    project = get('projects/auth-api')
-    if not isinstance(project, dict) or project.get('metadata', {}).get('public') != 'true':
-        raise SystemExit('Harbor project auth-api must exist and be public')
+    # Every target project and repository must be readable before any tag check.
+    for project, repository in TARGET_REPOSITORIES:
+        document = get(f'projects/{project}')
+        if not isinstance(document, dict):
+            raise SystemExit(f'Harbor project {project} is missing or unreadable')
+        target = get(f'projects/{project}/repositories/{repository}')
+        if not isinstance(target, dict):
+            raise SystemExit(f'Harbor repository {project}/{repository} is missing or unreadable')
+
     version, sha = os.environ['VERSION'], os.environ['REVISION']
-    for tag in (version, sha, f'{version}-{sha}'):
-        artifact = get('projects/auth-api/repositories/auth-api/artifacts/' + urllib.parse.quote(tag, safe=''), True)
-        if artifact is not None:
-            raise SystemExit(f'Refusing overwrite: image tag {tag} already exists')
-    print('All three tags are new; authenticated Harbor preflight passed')
+    for project, repository in TARGET_REPOSITORIES:
+        for tag in (version, sha, f'{version}-{sha}'):
+            path = f'projects/{project}/repositories/{repository}/artifacts/' + urllib.parse.quote(tag, safe='')
+            artifact = get(path, True)
+            if artifact is not None:
+                raise SystemExit(f'Refusing overwrite: {project}/{repository} already has tag {tag}')
+    print('All three tags are new in both FeedValue repositories; authenticated Harbor preflight passed')
 
 
 if __name__ == '__main__':

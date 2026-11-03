@@ -5,23 +5,44 @@ into FeedValue or make it private.
 
 ## Publisher setup
 
-Use the public Harbor project `auth-api`, repository `auth-api`, at
-`registry.sarvent.cloud/auth-api/auth-api`.  A shared service must not publish
-its canonical image into a consumer's staging or production project.
+The auth-api image belongs to the FeedValue Harbor projects, like every other
+FeedValue service.  There is no shared public `auth-api` project and none is
+created.  The two target repositories are:
 
-A Harbor administrator must verify or create the public project and an
-immutable-tag rule covering every tag of repository `auth-api`.  Create a
-project-scoped robot with artifact pull/push and the read access needed for
-project metadata and artifact lookup.  Do not give delete or admin access.
-Set GitHub repository secrets `HARBOR_USERNAME` and `HARBOR_PASSWORD` to this
-robot's credentials.  Missing credentials fail the job, never skip a push.
+- `registry.sarvent.cloud/feedvalue-staging/auth-api`
+- `registry.sarvent.cloud/feedvalue-prod/auth-api`
+
+Both Harbor projects already exist and both already own an `auth-api`
+repository.  They are private projects.  Publish into them with the existing
+`HARBOR_USERNAME` and `HARBOR_PASSWORD` repository secrets.  The robot needs
+artifact push and read access to project metadata and artifacts in both
+projects.  No delete or admin access.  No new project and no new robot
+request are required.  Missing credentials fail the job, never skip a push.
 Never store credentials in this public repository.
 
-The authenticated preflight fails if any of the three tags exists.  It treats
-only HTTP 404 on artifact lookup as absent; auth, network, project and other
-errors fail closed.  A single concurrency group serializes this workflow.
-Server-side immutability is also required to prevent a race with external
-writers.  That Harbor policy has not been verified by this draft PR.
+Harbor project-wide immutable-tag rules are not configured in either FeedValue
+project, and this workflow does not change Harbor settings.  Enforcement rests
+on the workflow's own authenticated preflight, which checks both target
+repositories for all three tags and fails closed if either project already has
+any of them.  Harbor-side immutability remains recommended but is not claimed
+as present.
+
+## How the two projects are used
+
+Both projects receive the same immutable tags from one release tag.  The
+production project is not gated behind an extra manual confirmation.  The
+reason is simple: promotion from staging to production must be a values
+change, not a rebuild.  One build produces one digest, and that digest is
+present in both projects from the moment of publication.  If production were
+gated, the same digest would not be available in the production project at
+promotion time, which would force either a second build or a copy operation
+that is not an immutable tag push.
+
+The consequence is accepted and intentional: a release tag publishes to
+production as well as staging.  Promotion is controlled on the consumer side
+by which values file references which project.  The published tags are the
+exact release tag (including `v`), the full 40-character Git SHA, and
+`<release-tag>-<full-sha>`.  There is no `latest` alias.
 
 ## Cut a release
 
@@ -43,30 +64,37 @@ so CI extracts Node 24 from the Dockerfile ARG instead of inventing a field.
 Lint and tests must pass before the existing Dockerfile builds and pushes.
 
 Published tags are the exact release tag (including `v`), the full 40-character
-Git SHA, and `<release-tag>-<full-sha>`.  There is no `latest` alias.  Reusing a
+Git SHA, and `<release-tag>-<full-sha>`, in both target repositories.  Reusing a
 commit for another version fails because its SHA tag already exists.  Reruns
-also fail if any tag was already pushed, including after a partial failure;
-maintainers must investigate instead of deleting or overwriting tags.
-OCI title/version/revision/source/created labels and BuildKit max provenance
-accompany the image.  Provenance is not a separate signing-key policy.
+also fail if any tag was already pushed in either project, including after a
+partial failure; maintainers must investigate instead of deleting or
+overwriting tags.  OCI title/version/revision/source/created labels and BuildKit
+max provenance accompany the image.  Provenance is not a separate signing-key
+policy.
 
 ## Consumer contract
 
-Promote the same image digest across environments.  Consumers must pin
-`registry.sarvent.cloud/auth-api/auth-api@sha256:<published-digest>` from the
-workflow summary, not resolve a floating tag at deployment time.  Record the
-release version for audit.  Do not assume a digest before publishing.
+FeedValue values select the repository by environment:
 
-FeedValue currently renders `registry/repository:tag`.  Its Helm template needs
-a digest-aware path (`registry/repository@digest`, with tag fallback for other
-images).  Then set `auth-api.image.repository: auth-api/auth-api`, registry to
-`registry.sarvent.cloud`, and `auth-api.image.digest` to the published digest
-in both staging and production values.  Remove or stop using the auth-api
-image tag there.  Adding a digest value alone does not change the current
-rendered image.  Do not change auth-api-migrations, which this pipeline does
-not build.  Retire FeedValue's auth-api image build/tag rewrite only in a
-separate reviewed consumer change.  Submodule bumps may still serve source or
-migration needs; standalone publishing does not remove those needs by itself.
+- staging: `feedvalue-staging/auth-api`
+- production: `feedvalue-prod/auth-api`
+
+The tag is the release version or the commit SHA.  The parent Helm template
+currently renders `registry/repository:tag` only, so the consumer change is
+the repository value per environment plus the published tag.  A digest-aware
+path (`registry/repository@digest`) is a separate follow-up and is not part of
+this pipeline.  Do not assume a digest before publishing.
+
+Promote the same image across environments.  When the consumer moves to digest
+pinning, use `registry.sarvent.cloud/feedvalue-staging/auth-api@sha256:<digest>`
+and `registry.sarvent.cloud/feedvalue-prod/auth-api@sha256:<digest>` from the
+workflow summary, not a floating tag resolved at deployment time.  Record the
+release version for audit.
+
+Do not change auth-api-migrations, which this pipeline does not build.  Retire
+FeedValue's auth-api image build and tag rewrite only in a separate reviewed
+consumer change.  Submodule bumps may still serve source or migration needs;
+standalone publishing does not remove those needs by itself.
 
 Report suspected vulnerabilities privately to the repository owner through
 GitHub's private vulnerability reporting if enabled; otherwise contact the
