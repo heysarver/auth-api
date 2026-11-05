@@ -45,6 +45,16 @@ interface BetterAuthJwtApi {
   verifyJWT: (input: { body: { token: string } }) => Promise<{ payload: unknown | null }>;
 }
 
+/**
+ * better-auth 1.7 moved `verifyJWT` off the client-facing `auth.api` type: it
+ * is a server-only endpoint now, so it no longer appears in `InferAPI`. The
+ * runtime object still carries it. This narrowing keeps the cast in one named
+ * place instead of scattering `as unknown as` across the call sites.
+ */
+export function betterAuthJwtApi(api: unknown): BetterAuthJwtApi {
+  return api as BetterAuthJwtApi;
+}
+
 function compareSecrets(provided: string, expected: string): boolean {
   // Comparing fixed-length digests prevents length-dependent timing behavior.
   const providedDigest = createHash("sha256").update(provided).digest();

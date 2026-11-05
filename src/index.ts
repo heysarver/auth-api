@@ -23,11 +23,12 @@ import { validateTurnstileToken } from "./middleware/turnstile.js";
    createTokenIntrospectionHandler,
    createTokenIntrospectionRateLimitHandler,
    tokenIntrospectionRateLimitHandler,
+   betterAuthJwtApi,
  } from "./lib/token-introspection.js";
  import { loadWorkloadConfig } from "./lib/workload-config.js";
  import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
  import { createPostgresWorkloadStore } from "./lib/workload-store.js";
- import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
+ import { createBetterAuthWorkloadTokenAdapter, betterAuthJwtSigner } from "./lib/workload-token.js";
  import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
  import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
  import { getPublicAuthPolicy } from "./lib/email-verification-policy.js";
@@ -206,7 +207,7 @@ app.post(
   createTokenIntrospectionHandler({
     machineToken: process.env.TOKEN_INTROSPECTION_BEARER_TOKEN,
     clientId: tokenIntrospectionClientId,
-    verifyToken: createBetterAuthJwtVerifier(auth.api),
+    verifyToken: createBetterAuthJwtVerifier(betterAuthJwtApi(auth.api)),
     isSessionActive: createPostgresSessionActivityChecker(pool),
   }),
 );
@@ -231,7 +232,7 @@ if (workloadConfig.enabled) {
     renewalTtlSeconds: workloadConfig.renewalTtlSeconds,
     renewalIdempotencyTtlSeconds: workloadConfig.renewalIdempotencyTtlSeconds,
   });
-  const workloadTokens = createBetterAuthWorkloadTokenAdapter(auth.api, pool, workloadConfig);
+  const workloadTokens = createBetterAuthWorkloadTokenAdapter(betterAuthJwtSigner(auth.api), pool, workloadConfig);
   app.use(createWorkloadRouter({
     config: workloadConfig,
     store: workloadStore,

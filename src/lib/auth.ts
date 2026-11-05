@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { jwt } from "better-auth/plugins";
+import type { GithubProfile as BetterAuthGithubProfile } from "better-auth/social-providers";
 import { Pool } from "pg";
 import { postgresPoolMaximum } from "./database-config.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email.js";
@@ -99,6 +100,9 @@ export const auth = betterAuth({
   secret: betterAuthSecret,
 
   // Secondary storage using ValKey/Redis for session data
+  // better-auth 1.7 requires the two atomic operations below. The read-then-
+  // delete and read-then-update fallbacks were removed, so without them token
+  // consumption and distributed rate limiting silently stop being atomic.
   secondaryStorage: {
     get: async (key) => {
       return await redis.get(key);
@@ -112,6 +116,25 @@ export const auth = betterAuth({
     },
     delete: async (key) => {
       await redis.del(key);
+    },
+    // GETDEL is a single round trip, so a verification token cannot be read
+    // twice by two concurrent requests.
+    getAndDelete: async (key) => {
+      return await redis.getdel(key);
+    },
+    // The TTL is applied only when the counter is created, so a hot key cannot
+    // extend its own window by being incremented. INCR and EXPIRE run in one
+    // script so a crash between them cannot leave a counter that never expires.
+    increment: async (key, ttl) => {
+      const value = await redis.eval(
+        "local v = redis.call('INCR', KEYS[1]) " +
+          "if v == 1 and tonumber(ARGV[1]) > 0 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end " +
+          "return v",
+        1,
+        key,
+        String(ttl),
+      );
+      return Number(value);
     },
   },
 
@@ -282,15 +305,24 @@ export const auth = betterAuth({
 
           console.log("✅ GitHub OAuth: Successfully obtained email, emailVerified:", emailVerified);
 
+          // better-auth 1.7 derives the account key from `accountSubject`,
+          // which for GitHub reads `profile.id` from this `data` payload. The
+          // `user.id` field left the OAuth2UserInfo contract in 1.7, so it is
+          // not returned; identity comes from `data`.
+          //
+          // The cast is deliberate: better-auth types `data` as its full
+          // GithubProfile, which declares ~35 fields of the REST payload. This
+          // module reads a handful and passes the parsed body through
+          // untouched. The one field better-auth reads from `data` is `id`,
+          // which the API always returns.
           return {
             user: {
-              id: String(profile.id),
               name: profile.name || profile.login,
               email: email,
               image: profile.avatar_url,
               emailVerified: emailVerified,
             },
-            data: profile,
+            data: profile as unknown as BetterAuthGithubProfile,
           };
         },
       },
