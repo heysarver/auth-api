@@ -79,3 +79,22 @@ databaseChangeLog:
               ALTER TABLE auth.workload_tokens DROP COLUMN IF EXISTS renewal_family_id;
               DROP TABLE IF EXISTS auth.workload_renewal_families;
               ALTER TABLE auth.workload_grants DROP COLUMN IF EXISTS renewable;
+
+  - changeSet:
+      id: auth-006
+      author: system
+      comment: Add jwks expiresAt/alg/crv and users organizationId that better-auth writes
+      changes:
+        - sqlFile:
+            path: changes/auth/006-add-better-auth-1-7-schema-columns.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
+      rollback:
+        - sql:
+            splitStatements: true
+            sql: |
+              ALTER TABLE auth.users DROP COLUMN IF EXISTS "organizationId";
+              ALTER TABLE auth.jwks DROP COLUMN IF EXISTS "crv";
+              ALTER TABLE auth.jwks DROP COLUMN IF EXISTS "alg";
+              ALTER TABLE auth.jwks DROP COLUMN IF EXISTS "expiresAt";
