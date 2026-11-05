@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  betterAuthJwtApi,
   createBetterAuthJwtVerifier,
   createPostgresSessionActivityChecker,
   createTokenIntrospectionHandler,
@@ -82,6 +83,66 @@ describe("token introspection parse error handler", () => {
     handler(otherError, { path: "/other" } as any, res, next);
     expect(next).toHaveBeenCalledWith(otherError);
     expect(res.status).not.toHaveBeenCalled();
+  });
+});
+
+describe("Better Auth JWT api narrowing", () => {
+  it("returns the same object, so call sites keep the runtime instance", () => {
+    const api = { verifyJWT: async () => ({ payload: null }) };
+
+    expect(betterAuthJwtApi(api)).toBe(api);
+  });
+});
+
+describe("token introspection handler authorization", () => {
+  const machineToken = "m".repeat(48);
+
+  function createResponse() {
+    return {
+      status: vi.fn().mockReturnThis(),
+      set: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+    } as any;
+  }
+
+  function createRequest(authorization?: string) {
+    return {
+      body: { token: "some.jwt.value" },
+      get: (header: string) => (header.toLowerCase() === "authorization" ? authorization : undefined),
+    } as any;
+  }
+
+  it("refuses a request with no Authorization header", async () => {
+    const res = createResponse();
+    const handler = createTokenIntrospectionHandler({
+      machineToken,
+      clientId: "test-client",
+      verifyToken: async () => ({ ...claims }),
+      isSessionActive: async () => true,
+      audit: () => {},
+    });
+
+    await handler(createRequest(), res, () => {});
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({ error: "unauthorized" });
+  });
+
+  it("reports inactive when the verified payload carries no usable claims", async () => {
+    const res = createResponse();
+    const handler = createTokenIntrospectionHandler({
+      machineToken,
+      clientId: "test-client",
+      // A payload missing `jti` is not a session-bound token, so it must not be
+      // reported active even though the signature verified.
+      verifyToken: async () => ({ sub: "user-id", iss: "issuer", aud: "audience", exp: 1_735_689_600 }),
+      isSessionActive: async () => true,
+      audit: () => {},
+    });
+
+    await handler(createRequest(`Bearer ${machineToken}`), res, () => {});
+
+    expect(res.json).toHaveBeenCalledWith({ active: false });
   });
 });
 
