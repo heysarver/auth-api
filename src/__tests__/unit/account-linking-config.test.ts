@@ -36,10 +36,20 @@ describe("matching-email account linking", () => {
 
   it("preserves a verified Google email for Better Auth's linking decision", () => {
     expect(mapGoogleProfile(googleProfile(true)).user).toMatchObject({
-      id: "google-user-123",
       email: "existing@example.com",
       emailVerified: true,
     });
+  });
+
+  it("derives the OAuth account key from the profile subject", () => {
+    // better-auth 1.7 resolves the account key from `accountSubject`, which for
+    // Google reads `data.sub`. The v2 userinfo response returns `id` and not
+    // `sub`, and a missing subject makes 1.7 throw
+    // OAUTH_ACCOUNT_SUBJECT_INVALID, so the mapping has to supply it.
+    const mapped = mapGoogleProfile(googleProfile(true));
+
+    expect(mapped.data.sub).toBe("google-user-123");
+    expect(mapped.user).not.toHaveProperty("id");
   });
 
   it("does not trust an unverified Google email", () => {
