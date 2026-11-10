@@ -38,6 +38,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Production dependency gate. It is enabled only now that the tree is
+      # clean of critical and high findings; before SAR-1565 it would have been
+      # red on arrival. Moderate and low findings do not fail this step.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       # Warnings do not fail this step. The tree currently carries 107
       # lint warnings and zero errors; a --max-warnings gate belongs in a
       # cleanup change, not in the gate that is supposed to unblock merges.
