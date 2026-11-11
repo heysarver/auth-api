@@ -231,7 +231,7 @@ describe("OpenTelemetry Instrumentation", () => {
         expect.objectContaining({
           resource: expect.anything(),
           traceExporter: expect.anything(),
-          metricReader: expect.anything(),
+          metricReaders: [expect.anything()],
           instrumentations: expect.any(Array),
         })
       );
