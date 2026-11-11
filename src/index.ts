@@ -1,6 +1,7 @@
 // CRITICAL: Import instrumentation FIRST before any other code
 // This ensures OpenTelemetry auto-instrumentation captures all telemetry
 import "./instrumentation.js";
+import { shutdownInstrumentation } from "./instrumentation.js";
 
 import dotenv from "dotenv";
 
@@ -14,7 +15,8 @@ import rateLimit from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { toNodeHandler } from "better-auth/node";
 import { auth, pool } from "./lib/auth.js";
-import { redis, registerCleanupHandlers } from "./lib/redis.js";
+import { redis, disconnect } from "./lib/redis.js";
+import { installShutdownHandlers } from "./lib/shutdown.js";
 import { validateTurnstileToken } from "./middleware/turnstile.js";
  import {
    createPostgresSessionActivityChecker,
@@ -32,9 +34,6 @@ import { validateTurnstileToken } from "./middleware/turnstile.js";
  import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
  import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
  import { getPublicAuthPolicy } from "./lib/email-verification-policy.js";
-
-// Register Redis cleanup handlers for graceful shutdown
-registerCleanupHandlers();
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -291,8 +290,16 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Auth API server running on http://localhost:${PORT}`);
   console.log(`📝 Auth endpoints available at http://localhost:${PORT}/*`);
   console.log(`🏥 Health check at http://localhost:${PORT}/health`);
+});
+
+// Single owner of process termination: drains HTTP, Postgres, Redis, telemetry.
+installShutdownHandlers({
+  server,
+  closePool: () => pool.end(),
+  disconnectRedis: disconnect,
+  shutdownTelemetry: shutdownInstrumentation,
 });

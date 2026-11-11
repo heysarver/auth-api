@@ -22,6 +22,40 @@ import {
   ATTR_SERVICE_VERSION,
 } from "@opentelemetry/semantic-conventions";
 
+// Module-level SDK handle so shutdownInstrumentation() exists on both the
+// instrumented path and the test path (where the SDK is never created).
+let sdk: NodeSDK | null = null;
+let shutdownPromise: Promise<void> | null = null;
+
+/**
+ * Shut the OpenTelemetry SDK down exactly once and flush pending telemetry.
+ *
+ * This module never terminates the process: signal handling belongs to
+ * lib/shutdown.ts, which calls this as the last drain step. Repeated calls
+ * resolve without calling `sdk.shutdown()` again, and in the test environment
+ * (where the SDK is never created) the call resolves without throwing.
+ */
+export function shutdownInstrumentation(): Promise<void> {
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  shutdownPromise = (async () => {
+    const instance = sdk;
+    if (!instance) {
+      return;
+    }
+    try {
+      await instance.shutdown();
+      console.log("OpenTelemetry SDK shut down successfully");
+    } catch (error) {
+      console.error("Error shutting down OpenTelemetry SDK:", error);
+    }
+  })();
+
+  return shutdownPromise;
+}
+
 // Skip instrumentation in test environment to avoid interfering with mocks
 if (process.env.NODE_ENV === "test") {
   console.log("Skipping OpenTelemetry instrumentation in test environment");
@@ -51,7 +85,7 @@ if (process.env.NODE_ENV === "test") {
   });
 
   // Initialize the OpenTelemetry SDK
-  const sdk = new NodeSDK({
+  sdk = new NodeSDK({
     resource,
     traceExporter,
     metricReader,
@@ -96,24 +130,6 @@ if (process.env.NODE_ENV === "test") {
   sdk.start();
   console.log(`OpenTelemetry SDK initialized for ${process.env.OTEL_SERVICE_NAME || "auth-api"}`);
   console.log(`Exporting telemetry to: ${otlpEndpoint}`);
-
-  // Gracefully shut down the SDK on process termination
-  // Note: Only add these handlers in non-test environments
-  if (process.env.NODE_ENV !== "test") {
-    const shutdown = async () => {
-      try {
-        await sdk.shutdown();
-        console.log("OpenTelemetry SDK shut down successfully");
-      } catch (error) {
-        console.error("Error shutting down OpenTelemetry SDK:", error);
-      } finally {
-        process.exit(0);
-      }
-    };
-
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
-  }
 }
 
 export default {};
