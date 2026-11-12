@@ -1,0 +1,104 @@
+name: Docker build
+
+# The Dockerfile is the deploy artifact: four consumer applications build their
+# auth-api image from it. A broken Dockerfile therefore breaks four deployments
+# while a TypeScript-only CI run stays green. This workflow builds the image and
+# proves it boots and serves /health, and it runs only when something that can
+# change the image changes.
+#
+# Nothing is published. Each consumer builds its own image.
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and boot the image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: auth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Build only. A build failure is the signal this job exists to produce.
+      - name: Build image
+        run: docker build --tag auth-api:ci .
+
+      # /health queries the database, so a reachable Postgres is part of the
+      # contract being checked. Host networking lets the container reach the
+      # service container's mapped port on the runner.
+      - name: Boot the image and assert /health
+        run: |
+          set -euo pipefail
+          docker run --detach --name auth-api-ci --network host \
+            -e NODE_ENV=production \
+            -e PORT=3002 \
+            -e DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/auth" \
+            -e BETTER_AUTH_SECRET="ci-only-secret-that-is-long-enough-32chars" \
+            -e POSTGRES_POOL_MAX=10 \
+            -e BETTER_AUTH_URL="http://127.0.0.1:3002" \
+            auth-api:ci
+
+          status=""
+          for attempt in $(seq 1 30); do
+            status=$(curl -s -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:3002/health || true)
+            if [ "$status" = "200" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          echo "health status: $status"
+          cat /tmp/health.json || true
+
+          if [ "$status" != "200" ]; then
+            echo "::error::/health did not return 200 inside the container"
+            docker logs auth-api-ci || true
+            docker rm -f auth-api-ci || true
+            exit 1
+          fi
+
+          # The container must report a healthy database, not merely answer.
+          grep -q '"status":"healthy"' /tmp/health.json || {
+            echo "::error::/health returned 200 but did not report healthy"
+            cat /tmp/health.json || true
+            docker logs auth-api-ci || true
+            docker rm -f auth-api-ci || true
+            exit 1
+          }
+
+      - name: Container logs
+        if: always()
+        run: docker logs auth-api-ci || true
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f auth-api-ci || true

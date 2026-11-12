@@ -5,6 +5,11 @@
 # Pinned patch release. A floating major (24-alpine) lets two builds of the
 # same commit ship different runtimes, which breaks reproducible images and
 # makes a runtime regression impossible to bisect.
+#
+# Digest pinning was considered and deliberately not adopted (SAR-1569, after
+# PRs #177/#178): the tag pin is the level of reproducibility this repository
+# maintains, and #182 landed it at the same patch CI runs. A digest would pin
+# harder but also freeze security updates behind a manual bump nobody owns.
 ARG NODE_VERSION=24.22.2-alpine
 FROM node:${NODE_VERSION} AS builder
 
@@ -35,7 +40,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production && \
+RUN npm ci --omit=dev && \
     npm cache clean --force
 
 # Copy built application from builder stage
