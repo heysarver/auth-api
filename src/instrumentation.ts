@@ -88,7 +88,7 @@ if (process.env.NODE_ENV === "test") {
   sdk = new NodeSDK({
     resource,
     traceExporter,
-    metricReader,
+    metricReaders: [metricReader],
     instrumentations: [
       getNodeAutoInstrumentations({
         // Disable specific instrumentations if needed

@@ -48,15 +48,6 @@ updates:
       # repository relies on.
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      # The OpenTelemetry SDK family cannot be updated package by package.
-      # The instrumentation packages that fix GHSA-qqmp-wf37-98f9 require
-      # OpenTelemetry SDK 3.0 and a matching exporter set, and the group update
-      # Dependabot generates for it fails `npm ci` on a peer conflict between
-      # @opentelemetry/auto-instrumentations-node 0.83.0 and the pinned
-      # @opentelemetry/api. Held by SAR-1623, which moves the whole family in
-      # one reviewed change with a trace and metric proof. Remove this hold
-      # when that lands.
-      - dependency-name: "@opentelemetry/*"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
