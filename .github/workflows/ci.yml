@@ -30,7 +30,7 @@ jobs:
       # Pinned to the same patch release as the Dockerfile so a green run
       # and the shipped image agree on the runtime.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24.22.2"
           cache: npm
