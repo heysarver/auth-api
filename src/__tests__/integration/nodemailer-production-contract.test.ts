@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 
 describe('reviewed Nodemailer production contract', () => {
   it('uses the reviewed patched parser and transport build', () => {
-    expect(require('nodemailer/package.json').version).toBe('10.0.16');
+    expect(require('nodemailer/package.json').version).toBe('10.5.0');
   });
   it('delivers the actual sendMail shape through bounded loopback SMTP', async () => {
     let received = '';

@@ -1,6 +1,7 @@
 // CRITICAL: Import instrumentation FIRST before any other code
 // This ensures OpenTelemetry auto-instrumentation captures all telemetry
 import "./instrumentation.js";
+import { shutdownInstrumentation } from "./instrumentation.js";
 
 import dotenv from "dotenv";
 
@@ -14,25 +15,25 @@ import rateLimit from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { toNodeHandler } from "better-auth/node";
 import { auth, pool } from "./lib/auth.js";
-import { redis, registerCleanupHandlers } from "./lib/redis.js";
+import { redis, disconnect } from "./lib/redis.js";
+import { installShutdownHandlers } from "./lib/shutdown.js";
 import { validateTurnstileToken } from "./middleware/turnstile.js";
-import {
-  createPostgresSessionActivityChecker,
-  createBetterAuthJwtVerifier,
-  createTokenIntrospectionParseErrorHandler,
-  createTokenIntrospectionHandler,
-  createTokenIntrospectionRateLimitHandler,
-  tokenIntrospectionRateLimitHandler,
-} from "./lib/token-introspection.js";
-import { loadWorkloadConfig } from "./lib/workload-config.js";
-import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
-import { createPostgresWorkloadStore } from "./lib/workload-store.js";
-import { createBetterAuthWorkloadTokenAdapter } from "./lib/workload-token.js";
-import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
-import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
-
-// Register Redis cleanup handlers for graceful shutdown
-registerCleanupHandlers();
+ import {
+   createPostgresSessionActivityChecker,
+   createBetterAuthJwtVerifier,
+   createTokenIntrospectionParseErrorHandler,
+   createTokenIntrospectionHandler,
+   createTokenIntrospectionRateLimitHandler,
+   tokenIntrospectionRateLimitHandler,
+   betterAuthJwtApi,
+ } from "./lib/token-introspection.js";
+ import { loadWorkloadConfig } from "./lib/workload-config.js";
+ import { createWorkloadParseErrorHandler, createWorkloadRouter } from "./lib/workload-routes.js";
+ import { createPostgresWorkloadStore } from "./lib/workload-store.js";
+ import { createBetterAuthWorkloadTokenAdapter, betterAuthJwtSigner } from "./lib/workload-token.js";
+ import { skipsSharedIpRateLimit } from "./lib/rate-limit-policy.js";
+ import { credentialRateLimitMiddleware } from "./middleware/rate-limit-credential.js";
+ import { getPublicAuthPolicy } from "./lib/email-verification-policy.js";
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -141,6 +142,15 @@ app.get("/health", async (_req, res) => {
   return res.json(cachedHealthResult);
 });
 
+// Public auth policy contract.
+// The dashboard reads this instead of inferring enforcement from email_verified,
+// which stays false for local accounts even when the server does not require
+// verification. Fail-safe default is enforced in email-verification-policy.ts.
+app.get("/config/policy", (_req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=60");
+  return res.json(getPublicAuthPolicy());
+});
+
 // Rate limiting (with trust proxy configuration for Kubernetes ingress)
 // Environment-specific limits: dev/staging more lenient, production stricter
 // NOTE: Health check is ABOVE this to prevent k8s probes from being rate limited
@@ -196,12 +206,7 @@ app.post(
   createTokenIntrospectionHandler({
     machineToken: process.env.TOKEN_INTROSPECTION_BEARER_TOKEN,
     clientId: tokenIntrospectionClientId,
-    verifyToken: createBetterAuthJwtVerifier(
-      // better-auth >= 1.7 leaves jwt-plugin endpoints out of `auth.api`'s
-      // inferred type on some configs even though they are present at runtime
-      // (verified: `verifyJWT`/`signJWT` are on the object). Localize the cast.
-      auth.api as unknown as Parameters<typeof createBetterAuthJwtVerifier>[0],
-    ),
+    verifyToken: createBetterAuthJwtVerifier(betterAuthJwtApi(auth.api)),
     isSessionActive: createPostgresSessionActivityChecker(pool),
   }),
 );
@@ -226,11 +231,7 @@ if (workloadConfig.enabled) {
     renewalTtlSeconds: workloadConfig.renewalTtlSeconds,
     renewalIdempotencyTtlSeconds: workloadConfig.renewalIdempotencyTtlSeconds,
   });
-  const workloadTokens = createBetterAuthWorkloadTokenAdapter(
-    auth.api as unknown as Parameters<typeof createBetterAuthWorkloadTokenAdapter>[0],
-    pool,
-    workloadConfig,
-  );
+  const workloadTokens = createBetterAuthWorkloadTokenAdapter(betterAuthJwtSigner(auth.api), pool, workloadConfig);
   app.use(createWorkloadRouter({
     config: workloadConfig,
     store: workloadStore,
@@ -239,21 +240,6 @@ if (workloadConfig.enabled) {
     verifyToken: workloadTokens.verifyToken,
     limiter: workloadLimiter,
   }));
-}
-
-// Dedicated opt-in AS browser surfaces. Shared service routes remain untouched.
-const boothwrightBrowserEnabled = process.env.BOOTHWRIGHT_BROWSER_ENABLED === "true";
-if (boothwrightBrowserEnabled) {
-  if (process.env.MARKETKIT_OAUTH_ENABLED !== "true") throw new Error("Boothwright browser requires enabled OAuth provider");
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) throw new Error("Boothwright browser requires dedicated Google configuration");
-  const { createBoothwrightBrowserHandler } = await import("./lib/boothwright-browser.js");
-  const { resolveMarketKitOAuthConfig } = await import("./lib/marketkit-oauth-provider.js");
-  const browser = createBoothwrightBrowserHandler({ enabled: true, auth,
-    baseURL: process.env.BETTER_AUTH_URL, secret: process.env.BETTER_AUTH_SECRET,
-    config: resolveMarketKitOAuthConfig()!,
-  });
-  app.all(["/login", "/consent"], toNodeHandler(async (request: Request) =>
-    (await browser(request)) || new Response("Not found", { status: 404 })));
 }
 
 // Turnstile verification middleware (after /health, before Better Auth)
@@ -304,8 +290,16 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Auth API server running on http://localhost:${PORT}`);
   console.log(`📝 Auth endpoints available at http://localhost:${PORT}/*`);
   console.log(`🏥 Health check at http://localhost:${PORT}/health`);
+});
+
+// Single owner of process termination: drains HTTP, Postgres, Redis, telemetry.
+installShutdownHandlers({
+  server,
+  closePool: () => pool.end(),
+  disconnectRedis: disconnect,
+  shutdownTelemetry: shutdownInstrumentation,
 });

@@ -1,4 +1,3 @@
-import { betterAuth } from "better-auth";
 import { jwt } from "better-auth/plugins";
 
 // better-auth exposes table metadata through the auth instance's options/plugins.

@@ -1,3 +1,5 @@
+import type { GoogleProfile as BetterAuthGoogleProfile } from "better-auth/social-providers";
+
 export interface GoogleProfile {
   id: string;
   name: string;
@@ -6,22 +8,39 @@ export interface GoogleProfile {
   verified_email: boolean;
 }
 
-import type { GoogleProfile as CoreGoogleProfile } from "@better-auth/core/social-providers";
-
-/** Preserve Google's verification claim for Better Auth's linking decision. */
+/**
+ * Preserve Google's verification claim for Better Auth's linking decision,
+ * and expose the profile as the raw claim record Better Auth 1.7 uses to
+ * derive the OAuth account key.
+ *
+ * better-auth 1.7 resolves the account key from `accountSubject`, which for
+ * Google reads `profile.sub` from this `data` payload. The v2 userinfo
+ * endpoint returns `id` and not `sub`, and a missing subject makes 1.7 throw
+ * OAUTH_ACCOUNT_SUBJECT_INVALID, so `sub` is mapped from `id`. The value is
+ * identical to the one earlier versions stored, so existing account rows keep
+ * matching and no re-link or duplicate account is created.
+ *
+ * `user.id` is no longer part of the OAuth2UserInfo contract in 1.7 and is
+ * therefore not returned here.
+ *
+ * The cast is deliberate. better-auth types `data` as the decoded ID token,
+ * which carries claims this userinfo response never has (aud, azp, iat, iss).
+ * The only field better-auth reads from `data` is `sub`, via `accountSubject`,
+ * and that field is guaranteed below.
+ */
 export function mapGoogleProfile(profile: GoogleProfile) {
+  const data = {
+    ...profile,
+    sub: profile.id,
+  };
+
   return {
     user: {
-      // better-auth >= 1.7 forbids a provider `id` in mapped user info; the raw
-      // provider identity travels in `data` and `accountSubject`.
       name: profile.name,
       email: profile.email,
       image: profile.picture,
       emailVerified: profile.verified_email === true,
     },
-    // The /userinfo shape differs from the id_token shape better-auth types for
-    // the built-in provider; cast is type-only (runtime data is unchanged and is
-    // used solely for the account key).
-    data: profile as unknown as CoreGoogleProfile,
+    data: data as unknown as BetterAuthGoogleProfile,
   };
 }

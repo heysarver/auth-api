@@ -8,7 +8,12 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:00"
-    open-pull-requests-limit: 10
+    # The limit is the reason this queue went quiet: Dependabot stops opening
+    # new version-update pull requests once this many are already open, so a
+    # backlog of 17 stale npm pull requests suppressed every new bump,
+    # including better-auth 1.6 -> 1.7. Keep the ceiling well above the number
+    # of npm dependencies that update in a normal week.
+    open-pull-requests-limit: 20
     labels:
       - "dependencies"
       - "npm"
@@ -35,7 +40,12 @@ updates:
           - "patch"
           - "minor"
     ignore:
-      # Pin major versions - update manually
+      # Major versions stay manual: a major bump needs a human read of its
+      # breaking changes and a matching test change, and Dependabot cannot do
+      # that. This rule covers semver-major only. Minor and patch updates are
+      # never ignored, so a package on a pinned major (better-auth) still gets
+      # its minor and patch bumps automatically, which is the behaviour this
+      # repository relies on.
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 

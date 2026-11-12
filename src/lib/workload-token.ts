@@ -18,6 +18,16 @@ interface BetterAuthJwtSigner {
   signJWT(input: { body: { payload: JWTPayload } }): Promise<{ token: string }>;
 }
 
+/**
+ * better-auth 1.7 moved `signJWT` off the client-facing `auth.api` type: it is
+ * a server-only endpoint now, so it no longer appears in `InferAPI`. The
+ * runtime object still carries it. This narrowing keeps the cast in one named
+ * place instead of scattering `as unknown as` across the call sites.
+ */
+export function betterAuthJwtSigner(api: unknown): BetterAuthJwtSigner {
+  return api as BetterAuthJwtSigner;
+}
+
 export interface WorkloadTokenInput {
   principalId: string;
   jkt: string;

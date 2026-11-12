@@ -154,23 +154,23 @@ describe("marketkit oauth provider extension — REAL plugin composition", () =>
 describe("marketkit oauth provider extension — version gate (GHSA-p2fr-6hmx-4528)", () => {
   it("exposes the advisory floor, pinned floor and advisory id", () => {
     expect(PROVIDER_ADVISORY_FLOOR).toBe("1.7.0");
-    expect(PROVIDER_PATCHED_FLOOR).toBe("1.7.7");
+    expect(PROVIDER_PATCHED_FLOOR).toBe("1.7.18");
     expect(PROVIDER_ADVISORY_ID).toBe("GHSA-p2fr-6hmx-4528");
   });
 
   it("rejects the pinned 1.6.23 identity", () => {
-    expect(() => assertProviderCompatible("1.6.23")).toThrow(/1\.7\.7/);
+    expect(() => assertProviderCompatible("1.6.23")).toThrow(/1\.7\.18/);
     expect(() => assertProviderCompatible("1.6.23")).toThrow(/GHSA-p2fr-6hmx-4528/);
   });
 
   it("accepts the pinned patched release and newer stable releases", () => {
-    expect(() => assertProviderCompatible("1.7.7")).not.toThrow();
-    expect(() => assertProviderCompatible("1.7.8")).not.toThrow();
+    expect(() => assertProviderCompatible("1.7.18")).not.toThrow();
+    expect(() => assertProviderCompatible("1.7.19")).not.toThrow();
     expect(() => assertProviderCompatible("2.0.0")).not.toThrow();
   });
 
   it("rejects malformed versions rather than coercing them", () => {
-    for (const bad of ["1.7", "1.7.x", "v1.7.7", "", " 1.7.7", "1.7.7-", "not-a-version"]) {
+    for (const bad of ["1.7", "1.7.x", "v1.7.18", "", " 1.7.18", "1.7.18-", "not-a-version"]) {
       expect(parseSemver(bad)).toBeNull();
       expect(() => assertProviderCompatible(bad)).toThrow(/not a valid semver/i);
     }

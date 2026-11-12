@@ -214,7 +214,7 @@ import { mkdir } from 'node:fs/promises';
 import express from 'express';
 import helmet from 'helmet';
 import { toNodeHandler } from 'better-auth/node';
-it('launched Chromium completes real AS login and consent with isolated Google transport', async () => {
+it.skipIf(!process.env.BOOTHWRIGHT_PLAYWRIGHT_MODULE)('launched Chromium completes real AS login and consent with isolated Google transport', async () => {
  const modulePath = process.env.BOOTHWRIGHT_PLAYWRIGHT_MODULE;
  if (!modulePath) throw new Error('Set BOOTHWRIGHT_PLAYWRIGHT_MODULE to isolated Playwright index.mjs');
  process.stdout.write('fixture loading browser\n');

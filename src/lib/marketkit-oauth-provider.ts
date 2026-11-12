@@ -9,7 +9,7 @@
  *
  * Because this module statically imports the provider package it can only be
  * compiled in the OPTIONAL extension build (see Dockerfile.marketkit, which pins
- * `@better-auth/oauth-provider@1.7.7` and its peer `better-auth@1.7.7`). The
+ * `@better-auth/oauth-provider@1.7.18` and its peer `better-auth@1.7.22`). The
  * default/shared service does not include this file's dependency and never
  * enables it.
  *
@@ -48,7 +48,7 @@ export const PROVIDER_ADVISORY_FLOOR = "1.7.0";
  * Pinned floor actually shipped and verified end-to-end by this build. The gate
  * requires the installed provider to be at least this stable release.
  */
-export const PROVIDER_PATCHED_FLOOR = "1.7.7";
+export const PROVIDER_PATCHED_FLOOR = "1.7.18";
 
 export interface MarketKitOAuthConfig {
   clientId: string;

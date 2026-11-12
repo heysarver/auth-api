@@ -391,8 +391,9 @@ describe("marketkit oauth provider — REAL isolated flow (better-auth 1.7.7)", 
     const { code } = await codeFor(cookie);
     const wrong = crypto.randomBytes(32).toString("base64url");
     const { status, body } = await exchange(code, wrong);
-    expect(status).toBe(401);
-    expect(body.error).toBe("invalid_request");
+    // RFC 6749 section 5.2: an invalid code_verifier is invalid_grant, not 401.
+    expect(status).toBe(400);
+    expect(body.error).toBe("invalid_grant");
     expect(String(body.error_description).toLowerCase()).toContain("verification failed");
   });
 

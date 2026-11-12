@@ -8,9 +8,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const originalEnv = { ...process.env };
 
 async function importFreshInstrumentation(caseName: string) {
-  await import(
+  const module = await import(
     /* @vite-ignore */ `../../instrumentation.ts?case=${caseName}-${Date.now()}`
   );
+  return module as { shutdownInstrumentation: () => Promise<void> };
 }
 
 function mockConstructors(modules: {
@@ -73,6 +74,15 @@ describe("OpenTelemetry Instrumentation", () => {
       expect(console.log).toHaveBeenCalledWith(
         "Skipping OpenTelemetry instrumentation in test environment"
       );
+    });
+
+    it("should expose a no-op shutdownInstrumentation in test environment", async () => {
+      process.env.NODE_ENV = "test";
+
+      const instrumentation = await importFreshInstrumentation("test-env-shutdown");
+
+      expect(typeof instrumentation.shutdownInstrumentation).toBe("function");
+      await expect(instrumentation.shutdownInstrumentation()).resolves.toBeUndefined();
     });
 
     it("should have mocked OpenTelemetry modules", async () => {
@@ -221,13 +231,16 @@ describe("OpenTelemetry Instrumentation", () => {
         expect.objectContaining({
           resource: expect.anything(),
           traceExporter: expect.anything(),
-          metricReader: expect.anything(),
+          metricReaders: [expect.anything()],
           instrumentations: expect.any(Array),
         })
       );
       expect(start).toHaveBeenCalledOnce();
-      expect(processOn).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
-      expect(processOn).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+      // The module must never own process termination: signal handling lives
+      // in lib/shutdown.ts.
+      expect(processOn).not.toHaveBeenCalled();
+      expect(processOn).not.toHaveBeenCalledWith("SIGTERM", expect.any(Function));
+      expect(processOn).not.toHaveBeenCalledWith("SIGINT", expect.any(Function));
       expect(console.log).toHaveBeenCalledWith(
         "OpenTelemetry SDK initialized for auth-api-test"
       );
@@ -248,7 +261,7 @@ describe("OpenTelemetry Instrumentation", () => {
       expect(span.setAttribute).toHaveBeenCalledWith("http.client_ip", "unknown");
     });
 
-    it("should shut down the SDK on termination signals", async () => {
+    it("should shut down the SDK once through shutdownInstrumentation", async () => {
       process.env.NODE_ENV = "production";
 
       const { NodeSDK } = await import("@opentelemetry/sdk-node");
@@ -264,24 +277,46 @@ describe("OpenTelemetry Instrumentation", () => {
         sdk: { start: vi.fn(), shutdown },
       });
 
-      const handlers = new Map<string, () => Promise<void>>();
-      vi.spyOn(process, "on").mockImplementation((event: any, listener: any) => {
-        handlers.set(event, listener);
-        return process;
-      });
+      const processOn = vi.spyOn(process, "on").mockReturnValue(process);
       const exit = vi
         .spyOn(process, "exit")
         .mockImplementation((() => undefined) as never);
 
-      await importFreshInstrumentation("shutdown-success");
-      await handlers.get("SIGTERM")?.();
+      const instrumentation = await importFreshInstrumentation("shutdown-success");
+      await instrumentation.shutdownInstrumentation();
 
       expect(shutdown).toHaveBeenCalledOnce();
       expect(console.log).toHaveBeenCalledWith("OpenTelemetry SDK shut down successfully");
-      expect(exit).toHaveBeenCalledWith(0);
+      // Termination belongs to lib/shutdown.ts, not to instrumentation.
+      expect(exit).not.toHaveBeenCalled();
+      expect(processOn).not.toHaveBeenCalledWith("SIGTERM", expect.any(Function));
+      expect(processOn).not.toHaveBeenCalledWith("SIGINT", expect.any(Function));
     });
 
-    it("should log shutdown errors before exiting", async () => {
+    it("should shut the SDK down only once across repeated calls", async () => {
+      process.env.NODE_ENV = "production";
+
+      const { NodeSDK } = await import("@opentelemetry/sdk-node");
+      const shutdown = vi.fn().mockResolvedValue(undefined);
+      const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-grpc");
+      const { OTLPMetricExporter } = await import("@opentelemetry/exporter-metrics-otlp-grpc");
+      const { PeriodicExportingMetricReader } = await import("@opentelemetry/sdk-metrics");
+      mockConstructors({
+        NodeSDK,
+        OTLPTraceExporter,
+        OTLPMetricExporter,
+        PeriodicExportingMetricReader,
+        sdk: { start: vi.fn(), shutdown },
+      });
+
+      const instrumentation = await importFreshInstrumentation("shutdown-idempotent");
+      await instrumentation.shutdownInstrumentation();
+      await instrumentation.shutdownInstrumentation();
+
+      expect(shutdown).toHaveBeenCalledOnce();
+    });
+
+    it("should log shutdown errors without terminating the process", async () => {
       process.env.NODE_ENV = "production";
 
       const { NodeSDK } = await import("@opentelemetry/sdk-node");
@@ -300,23 +335,18 @@ describe("OpenTelemetry Instrumentation", () => {
         },
       });
 
-      const handlers = new Map<string, () => Promise<void>>();
-      vi.spyOn(process, "on").mockImplementation((event: any, listener: any) => {
-        handlers.set(event, listener);
-        return process;
-      });
       const exit = vi
         .spyOn(process, "exit")
         .mockImplementation((() => undefined) as never);
 
-      await importFreshInstrumentation("shutdown-error");
-      await handlers.get("SIGINT")?.();
+      const instrumentation = await importFreshInstrumentation("shutdown-error");
+      await instrumentation.shutdownInstrumentation();
 
       expect(console.error).toHaveBeenCalledWith(
         "Error shutting down OpenTelemetry SDK:",
         shutdownError
       );
-      expect(exit).toHaveBeenCalledWith(0);
+      expect(exit).not.toHaveBeenCalled();
     });
   });
 
