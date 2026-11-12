@@ -23,6 +23,7 @@ function createHarness(localEmailVerified = true) {
   const createUser = vi.fn();
   const createAccount = vi.fn();
   const updateUser = vi.fn();
+  const updateAccount = vi.fn();
   const createSession = vi.fn().mockResolvedValue({
     id: "session-123",
     userId: localUser.id,
@@ -79,6 +80,7 @@ function createHarness(localEmailVerified = true) {
         createAccount,
         createSession,
         updateUser,
+        updateAccount,
       },
       logger: {
         error: vi.fn(),
@@ -125,10 +127,7 @@ describe("Better Auth matching-email linking behavior", () => {
   it("links verified Google to the existing verified user", async () => {
     const harness = createHarness();
 
-    const result = await handleOAuthUserInfo(
-      harness.context,
-      googleOptions(),
-    );
+    const result = await handleOAuthUserInfo(harness.context, googleOptions());
 
     expect(result.error).toBeNull();
     expect(result.data?.user.id).toBe(harness.localUser.id);
@@ -159,10 +158,7 @@ describe("Better Auth matching-email linking behavior", () => {
   it("rejects linking when the existing local email is not verified", async () => {
     const harness = createHarness(false);
 
-    const result = await handleOAuthUserInfo(
-      harness.context,
-      googleOptions(),
-    );
+    const result = await handleOAuthUserInfo(harness.context, googleOptions());
 
     expect(result).toMatchObject({ error: "account not linked", data: null });
     expect(harness.linkAccount).not.toHaveBeenCalled();

@@ -1,0 +1,24 @@
+2026-10-07T04:58:34.533Z WARN [Better Auth]: [better-auth] Warning: your BETTER_AUTH_SECRET appears low-entropy. Use a randomly generated secret for production.
+  ok - sign-up status 200 (got 200)
+  user id: vUWuj92Un8bnWAmtG8v3lgrTqTGBuNIP
+  ok - provider auto-seeded oauthResource from config into the real table
+  ok - seeded oauthClient + link; provider auto-seeded oauthResource (JSONB)
+  ok - authorize 302 (got 302)
+  ok - authorization code issued to the registered redirect
+  ok - token exchange 200 (got 200)
+  ok - access_token issued
+  ok - refresh_token issued (offline_access)
+  ok - JWKS endpoint 200
+  ok - iss == http://localhost:3002
+  ok - aud == https://mcp.marketkit.example
+  ok - client_id == marketkit-mcp
+  ok - sub == signed-up user id (vUWuj92Un8bnWAmtG8v3lgrTqTGBuNIP)
+  ok - exp in the future
+  ok - granted scope == configured scope set
+  ok - an oauthRefreshToken row was persisted
+  ok - refresh scopes column is a JSONB array (got array)
+  ok - refresh resources column is a JSONB array (got array)
+  ok - refresh grant 200
+  ok - rotated refresh token replay rejected
+
+POSTGRES-FLOW: PASS

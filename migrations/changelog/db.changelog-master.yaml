@@ -98,3 +98,10 @@ databaseChangeLog:
               ALTER TABLE auth.jwks DROP COLUMN IF EXISTS "crv";
               ALTER TABLE auth.jwks DROP COLUMN IF EXISTS "alg";
               ALTER TABLE auth.jwks DROP COLUMN IF EXISTS "expiresAt";
+
+  # The OPT-IN MarketKit OAuth-provider schema (changeSet marketkit-oauth-provider-177)
+  # is deliberately NOT auto-applied here. It is staged in a SEPARATE changelog so
+  # that a live authorization-server migration never runs as a side effect of the
+  # shared service's default migrate step; it is applied only when the extension is
+  # explicitly enabled. See changes/marketkit-oauth/README.md and
+  # db.changelog-marketkit-oauth.yaml.

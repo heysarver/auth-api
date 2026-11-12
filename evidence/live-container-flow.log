@@ -1,0 +1,12 @@
+  ok - live sign-up 200 (got 200)
+  live user id: i1iAE1ADmB7UHqFRJG7uv9Lt661s9gqI
+  ok - live authorize 200/302 (got 200)
+  ok - authorization code issued to the registered redirect
+  ok - live token 200 + access_token (got 200)
+  ok - iss == http://localhost:13002
+  ok - aud == https://mcp.marketkit.example
+  ok - client_id == marketkit-mcp
+  ok - sub == live user id (i1iAE1ADmB7UHqFRJG7uv9Lt661s9gqI)
+  ok - granted scope == configured set
+
+LIVE-CONTAINER-FLOW: PASS
