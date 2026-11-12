@@ -15,7 +15,6 @@ export default defineConfig({
         "src/test-*.ts",
         "src/index.ts", // Main entry point (server startup)
         "src/lib/auth.ts", // Better Auth config (complex to test in isolation)
-        "src/lib/auth-secure.ts", // Alternative auth config
         "**/*.d.ts",
         "**/node_modules/**",
         "**/dist/**",

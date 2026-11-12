@@ -79,7 +79,7 @@ cd ../migrations
 liquibase update -Dcontexts=development
 ```
 
-Note: Better-auth will also automatically create/update its required tables on first run.
+Note: Better Auth does **not** create or migrate tables. The Liquibase changelog under `migrations/` owns the schema, so a missing or stale table fails at query time rather than at boot. Apply migrations before pointing a replica at a new database.
 
 ### Development
 
@@ -126,10 +126,10 @@ All auth routes are at the **root path** (no `/api/auth/` prefix):
 ## 🔒 Security Features
 
 - Helmet.js for security headers
-- Rate limiting (100 requests per 15 minutes)
+- Rate limiting (15 minute window: 500 requests in production, 2000 otherwise), plus a separate per-email credential limit
 - CORS configuration for trusted origins
 - Secure cookie settings in production
-- Password hashing with bcrypt
+- Password hashing via Better Auth's default hasher (bcrypt is not a dependency)
 - JWT token signing
 
 ## 🐳 Docker Support
@@ -157,7 +157,7 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 - Multi-stage build for minimal image size
 - Non-root user for enhanced security
 - Health checks for container orchestration
-- Signal handling with dumb-init
+- Node runs as PID 1 and receives SIGTERM directly; `src/lib/shutdown.ts` drains HTTP, Postgres, Redis and telemetry
 - Production-only dependencies
 
 ## 📝 Environment Variables
@@ -167,7 +167,7 @@ docker run -p 3002:3002 --env-file .env auth-api:latest
 | `PORT` | Server port | 3002 |
 | `NODE_ENV` | Environment | development |
 | `DATABASE_URL` | PostgreSQL connection string | - |
-| `POSTGRES_POOL_MAX` | Maximum PostgreSQL connections per auth-api replica (1-20) | `20` |
+| `POSTGRES_POOL_MAX` | Maximum PostgreSQL connections per auth-api replica (1-20). **Required in production and must equal exactly 10**; unset in production throws at boot | `20` |
 | `BETTER_AUTH_SECRET` | Secret for JWT signing (min 32 chars) | - |
 | `BETTER_AUTH_URL` | Base URL for auth (subdomain: auth.domain.com) | http://localhost:3002 |
 | `JWT_AUDIENCE` | Exact JWT audience required by relying services | BETTER_AUTH_URL |
@@ -230,9 +230,9 @@ and `token_use=workload`. Deployments must configure a consumer-specific
 audience; the repository does not hard-code a downstream system or audience.
 
 `createBetterAuthWorkloadTokenAdapter` is the temporary compatibility boundary
-for Better Auth 1.6.x. It supplies the missing workload claim and verification
-profile while keeping route dependencies stable for a later native Better Auth
-replacement after the 1.7 feature set reaches a stable release.
+for the Better Auth JWT plugin. It supplies the missing workload claim and
+verification profile while keeping route dependencies stable for a later native
+Better Auth replacement. The repository currently ships Better Auth 1.7.22.
 
 The principal flow is deliberately registrar-to-workload-client:
 
