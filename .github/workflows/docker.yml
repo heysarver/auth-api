@@ -63,6 +63,7 @@ jobs:
             -e PORT=3002 \
             -e DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/auth" \
             -e BETTER_AUTH_SECRET="ci-only-secret-that-is-long-enough-32chars" \
+            -e POSTGRES_POOL_MAX=10 \
             -e BETTER_AUTH_URL="http://127.0.0.1:3002" \
             auth-api:ci
 
